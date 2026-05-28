@@ -83,15 +83,17 @@ void MainWindow::setupUi()
 {
     auto *central = new QWidget(this);
     auto *rootLayout = new QVBoxLayout(central);
-    rootLayout->setSpacing(4);
+    rootLayout->setContentsMargins(6, 4, 6, 4);
+    rootLayout->setSpacing(2);
 
     auto *pathLayout = new QHBoxLayout();
     pathLayout->setContentsMargins(0, 0, 0, 0);
-    pathLayout->addStretch(1);
+    pathLayout->setSpacing(0);
 
     includeSubfoldersCheckBox = new QCheckBox(tr("サブフォルダも対象にする"), central);
     connect(includeSubfoldersCheckBox, &QCheckBox::toggled, this, &MainWindow::refreshCurrentPath);
     pathLayout->addWidget(includeSubfoldersCheckBox);
+    pathLayout->addStretch(1);
 
     rootLayout->addLayout(pathLayout);
 
