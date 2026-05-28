@@ -21,6 +21,8 @@ add_executable(fileInfoChanger
     src/FileScanner.h
     src/TextInspector.cpp
     src/TextInspector.h
+    src/TextConverter.cpp
+    src/TextConverter.h
 )
 
 target_link_libraries(fileInfoChanger PRIVATE Qt6::Widgets)

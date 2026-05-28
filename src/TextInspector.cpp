@@ -1,10 +1,12 @@
 #include "TextInspector.h"
 
-#include <QStringDecoder>
-
 FileKind TextInspector::detectKind(const QByteArray &data)
 {
     if (data.isEmpty()) {
+        return FileKind::Text;
+    }
+
+    if (data.startsWith("\xEF\xBB\xBF") || data.startsWith("\xFF\xFE") || data.startsWith("\xFE\xFF")) {
         return FileKind::Text;
     }
 
@@ -102,7 +104,53 @@ QString TextInspector::detectNewline(const QByteArray &data, FileKind kind)
 
 bool TextInspector::isValidUtf8(const QByteArray &data)
 {
-    QStringDecoder decoder(QStringDecoder::Utf8);
-    decoder.decode(data);
-    return !decoder.hasError();
+    int i = 0;
+    while (i < data.size()) {
+        const unsigned char c = static_cast<unsigned char>(data.at(i));
+        if (c <= 0x7F) {
+            ++i;
+            continue;
+        }
+
+        int length = 0;
+        unsigned int codePoint = 0;
+        if (c >= 0xC2 && c <= 0xDF) {
+            length = 2;
+            codePoint = c & 0x1F;
+        } else if (c >= 0xE0 && c <= 0xEF) {
+            length = 3;
+            codePoint = c & 0x0F;
+        } else if (c >= 0xF0 && c <= 0xF4) {
+            length = 4;
+            codePoint = c & 0x07;
+        } else {
+            return false;
+        }
+
+        if (i + length > data.size()) {
+            return false;
+        }
+
+        for (int j = 1; j < length; ++j) {
+            const unsigned char continuation = static_cast<unsigned char>(data.at(i + j));
+            if ((continuation & 0xC0) != 0x80) {
+                return false;
+            }
+            codePoint = (codePoint << 6) | (continuation & 0x3F);
+        }
+
+        if ((length == 3 && codePoint < 0x800) || (length == 4 && codePoint < 0x10000)) {
+            return false;
+        }
+        if (codePoint >= 0xD800 && codePoint <= 0xDFFF) {
+            return false;
+        }
+        if (codePoint > 0x10FFFF) {
+            return false;
+        }
+
+        i += length;
+    }
+
+    return true;
 }
