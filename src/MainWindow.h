@@ -78,7 +78,6 @@ private:
     QString kindText(FileKind kind) const;
     int maxScanDepth() const;
 
-    QLabel *pathLabel = nullptr;
     QCheckBox *includeSubfoldersCheckBox = nullptr;
     QComboBox *filterComboBox = nullptr;
     QComboBox *encodingFilterComboBox = nullptr;

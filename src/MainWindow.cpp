@@ -83,11 +83,11 @@ void MainWindow::setupUi()
 {
     auto *central = new QWidget(this);
     auto *rootLayout = new QVBoxLayout(central);
+    rootLayout->setSpacing(4);
 
     auto *pathLayout = new QHBoxLayout();
-    pathLabel = new QLabel(tr("ファイルまたはフォルダを開くか、ここへドラッグ＆ドロップしてください。"), central);
-    pathLabel->setTextInteractionFlags(Qt::TextSelectableByMouse);
-    pathLayout->addWidget(pathLabel, 1);
+    pathLayout->setContentsMargins(0, 0, 0, 0);
+    pathLayout->addStretch(1);
 
     includeSubfoldersCheckBox = new QCheckBox(tr("サブフォルダも対象にする"), central);
     connect(includeSubfoldersCheckBox, &QCheckBox::toggled, this, &MainWindow::refreshCurrentPath);
@@ -185,6 +185,7 @@ void MainWindow::setupUi()
     commitEncodingButton->setEnabled(false);
     connect(commitEncodingButton, &QPushButton::clicked, this, &MainWindow::commitEncodingChanges);
     changeLayout->addWidget(commitEncodingButton);
+    changeLayout->setAlignment(commitEncodingButton, Qt::AlignBottom);
     changeLayout->addStretch(1);
 
     auto *toolLayout = new QHBoxLayout();
@@ -242,7 +243,7 @@ void MainWindow::setupUi()
     setCentralWidget(central);
     loadFilterHistory();
     applyViewMode();
-    statusBar()->showMessage(tr("準備完了"));
+    statusBar()->showMessage(tr("ファイルまたはフォルダを開くか、ここへドラッグ＆ドロップしてください。"));
 }
 
 void MainWindow::setupMenus()
@@ -320,7 +321,6 @@ void MainWindow::loadPath(const QString &path)
     }
 
     currentPath = target.absoluteFilePath();
-    pathLabel->setText(tr("対象: %1").arg(currentPath));
 
     FileScanner scanner;
     const int depth = maxScanDepth();
@@ -358,20 +358,28 @@ void MainWindow::applyCurrentDisplayFilters()
         }
     }
     const QString filterSummary = activeFilterTexts.join(QStringLiteral(" / "));
+    const QString targetText = tr("対象: %1").arg(currentPath);
     if (includeSubfolders && target.isDir()) {
         if (filterSummary.isEmpty()) {
-            statusBar()->showMessage(tr("%1 件を表示（サブフォルダ深さ %2 まで）").arg(files.size()).arg(depth));
+            statusBar()->showMessage(tr("%1 | %2 件を表示（サブフォルダ深さ %3 まで）")
+                                         .arg(targetText)
+                                         .arg(files.size())
+                                         .arg(depth));
         } else {
-            statusBar()->showMessage(tr("%1 件を表示（%2 / サブフォルダ深さ %3 まで）")
+            statusBar()->showMessage(tr("%1 | %2 件を表示（%3 / サブフォルダ深さ %4 まで）")
+                                         .arg(targetText)
                                          .arg(files.size())
                                          .arg(filterSummary)
                                          .arg(depth));
         }
     } else {
         if (filterSummary.isEmpty()) {
-            statusBar()->showMessage(tr("%1 件を表示").arg(files.size()));
+            statusBar()->showMessage(tr("%1 | %2 件を表示").arg(targetText).arg(files.size()));
         } else {
-            statusBar()->showMessage(tr("%1 件を表示（%2）").arg(files.size()).arg(filterSummary));
+            statusBar()->showMessage(tr("%1 | %2 件を表示（%3）")
+                                         .arg(targetText)
+                                         .arg(files.size())
+                                         .arg(filterSummary));
         }
     }
 }
@@ -600,16 +608,16 @@ void MainWindow::updateSelectedPathLabel()
     const QString selectedPath = nameItem ? nameItem->toolTip() : QString();
 
     if (!selectedPath.isEmpty()) {
-        pathLabel->setText(tr("対象: %1").arg(selectedPath));
+        statusBar()->showMessage(tr("対象: %1").arg(selectedPath));
         return;
     }
 
     if (!currentPath.isEmpty()) {
-        pathLabel->setText(tr("対象: %1").arg(currentPath));
+        statusBar()->showMessage(tr("対象: %1").arg(currentPath));
         return;
     }
 
-    pathLabel->setText(tr("ファイルまたはフォルダを開くか、ここへドラッグ＆ドロップしてください。"));
+    statusBar()->showMessage(tr("ファイルまたはフォルダを開くか、ここへドラッグ＆ドロップしてください。"));
 }
 
 void MainWindow::loadFilterHistory()
