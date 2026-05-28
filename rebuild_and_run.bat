@@ -9,4 +9,6 @@ if errorlevel 1 exit /b %errorlevel%
 cmake --build build
 if errorlevel 1 exit /b %errorlevel%
 
+copy /Y fileInfoChanger.ini build\fileInfoChanger.ini >nul
+
 build\fileInfoChanger.exe

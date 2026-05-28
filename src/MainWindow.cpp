@@ -5,6 +5,8 @@
 #include <QAction>
 #include <QApplication>
 #include <QCheckBox>
+#include <QCoreApplication>
+#include <QDir>
 #include <QDragEnterEvent>
 #include <QDropEvent>
 #include <QFileDialog>
@@ -14,6 +16,7 @@
 #include <QLabel>
 #include <QMenuBar>
 #include <QMimeData>
+#include <QSettings>
 #include <QSplitter>
 #include <QStatusBar>
 #include <QTableWidget>
@@ -55,9 +58,16 @@ void MainWindow::setupUi()
     auto *central = new QWidget(this);
     auto *rootLayout = new QVBoxLayout(central);
 
+    auto *pathLayout = new QHBoxLayout();
     pathLabel = new QLabel(tr("ファイルまたはフォルダを開くか、ここへドラッグ＆ドロップしてください。"), central);
     pathLabel->setTextInteractionFlags(Qt::TextSelectableByMouse);
-    rootLayout->addWidget(pathLabel);
+    pathLayout->addWidget(pathLabel, 1);
+
+    includeSubfoldersCheckBox = new QCheckBox(tr("サブフォルダも対象にする"), central);
+    connect(includeSubfoldersCheckBox, &QCheckBox::toggled, this, &MainWindow::refreshCurrentPath);
+    pathLayout->addWidget(includeSubfoldersCheckBox);
+
+    rootLayout->addLayout(pathLayout);
 
     auto *splitter = new QSplitter(Qt::Horizontal, central);
 
@@ -77,6 +87,8 @@ void MainWindow::setupUi()
     leftTable->horizontalHeader()->setSectionResizeMode(1, QHeaderView::Stretch);
     leftTable->setSelectionBehavior(QAbstractItemView::SelectRows);
     leftTable->setEditTriggers(QAbstractItemView::NoEditTriggers);
+    connect(leftTable, &QTableWidget::currentCellChanged, this, &MainWindow::updateSelectedPathLabel);
+    connect(leftTable, &QTableWidget::cellClicked, this, &MainWindow::updateSelectedPathLabel);
 
     auto *arrowLabel = new QLabel(tr("→"), splitter);
     arrowLabel->setAlignment(Qt::AlignCenter);
@@ -157,9 +169,20 @@ void MainWindow::loadPath(const QString &path)
     pathLabel->setText(tr("対象: %1").arg(currentPath));
 
     FileScanner scanner;
-    const QList<FileInfo> files = scanner.scanPath(currentPath, showTextAction->isChecked(), showBinaryAction->isChecked());
+    const int depth = maxScanDepth();
+    const bool includeSubfolders = includeSubfoldersCheckBox->isChecked();
+    const QList<FileInfo> files = scanner.scanPath(currentPath,
+                                                   showTextAction->isChecked(),
+                                                   showBinaryAction->isChecked(),
+                                                   includeSubfolders,
+                                                   depth);
     populateLeftPane(files);
-    statusBar()->showMessage(tr("%1 件を表示").arg(files.size()));
+    updateSelectedPathLabel();
+    if (includeSubfolders && target.isDir()) {
+        statusBar()->showMessage(tr("%1 件を表示（サブフォルダ深さ %2 まで）").arg(files.size()).arg(depth));
+    } else {
+        statusBar()->showMessage(tr("%1 件を表示").arg(files.size()));
+    }
 }
 
 void MainWindow::refreshCurrentPath()
@@ -199,6 +222,25 @@ void MainWindow::populateLeftPane(const QList<FileInfo> &files)
     leftTable->horizontalHeader()->setSectionResizeMode(1, QHeaderView::Stretch);
 }
 
+void MainWindow::updateSelectedPathLabel()
+{
+    const int row = leftTable->currentRow();
+    const QTableWidgetItem *nameItem = row >= 0 ? leftTable->item(row, 1) : nullptr;
+    const QString selectedPath = nameItem ? nameItem->toolTip() : QString();
+
+    if (!selectedPath.isEmpty()) {
+        pathLabel->setText(tr("対象: %1").arg(selectedPath));
+        return;
+    }
+
+    if (!currentPath.isEmpty()) {
+        pathLabel->setText(tr("対象: %1").arg(currentPath));
+        return;
+    }
+
+    pathLabel->setText(tr("ファイルまたはフォルダを開くか、ここへドラッグ＆ドロップしてください。"));
+}
+
 QString MainWindow::kindText(FileKind kind) const
 {
     switch (kind) {
@@ -210,4 +252,15 @@ QString MainWindow::kindText(FileKind kind) const
         return tr("不明");
     }
     return tr("不明");
+}
+
+int MainWindow::maxScanDepth() const
+{
+    const QString appConfigPath = QCoreApplication::applicationDirPath() + QStringLiteral("/fileInfoChanger.ini");
+    const QString cwdConfigPath = QDir::currentPath() + QStringLiteral("/fileInfoChanger.ini");
+    const QString configPath = QFileInfo::exists(appConfigPath) ? appConfigPath : cwdConfigPath;
+
+    QSettings settings(configPath, QSettings::IniFormat);
+    const int depth = settings.value(QStringLiteral("Scan/maxDepth"), 5).toInt();
+    return qBound(0, depth, 100);
 }

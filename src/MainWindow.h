@@ -7,6 +7,7 @@
 
 class QLabel;
 class QAction;
+class QCheckBox;
 class QTableWidget;
 
 class MainWindow : public QMainWindow
@@ -28,9 +29,12 @@ private:
     void loadPath(const QString &path);
     void refreshCurrentPath();
     void populateLeftPane(const QList<FileInfo> &files);
+    void updateSelectedPathLabel();
     QString kindText(FileKind kind) const;
+    int maxScanDepth() const;
 
     QLabel *pathLabel = nullptr;
+    QCheckBox *includeSubfoldersCheckBox = nullptr;
     QTableWidget *leftTable = nullptr;
     QTableWidget *rightTable = nullptr;
     QAction *showTextAction = nullptr;
