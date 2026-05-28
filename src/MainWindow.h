@@ -4,10 +4,12 @@
 
 #include <QList>
 #include <QMainWindow>
+#include <QStringList>
 
 class QLabel;
 class QAction;
 class QCheckBox;
+class QComboBox;
 class QTableWidget;
 
 class MainWindow : public QMainWindow
@@ -28,13 +30,19 @@ private:
     void openFolder();
     void loadPath(const QString &path);
     void refreshCurrentPath();
+    void applyFilter();
     void populateLeftPane(const QList<FileInfo> &files);
     void updateSelectedPathLabel();
+    void loadFilterHistory();
+    void saveFilterHistory();
+    QStringList currentNameFilters() const;
+    QString configPath() const;
     QString kindText(FileKind kind) const;
     int maxScanDepth() const;
 
     QLabel *pathLabel = nullptr;
     QCheckBox *includeSubfoldersCheckBox = nullptr;
+    QComboBox *filterComboBox = nullptr;
     QTableWidget *leftTable = nullptr;
     QTableWidget *rightTable = nullptr;
     QAction *showTextAction = nullptr;

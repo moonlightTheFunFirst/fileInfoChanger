@@ -11,14 +11,15 @@ QList<FileInfo> FileScanner::scanPath(const QString &path,
                                       bool includeText,
                                       bool includeBinary,
                                       bool includeSubfolders,
-                                      int maxDepth) const
+                                      int maxDepth,
+                                      const QStringList &nameFilters) const
 {
     QList<FileInfo> files;
     const QFileInfo input(path);
 
     if (input.isFile()) {
         const FileInfo file = inspectFile(input.absoluteFilePath());
-        if (shouldInclude(file, includeText, includeBinary)) {
+        if (shouldInclude(file, includeText, includeBinary, nameFilters)) {
             files.append(file);
         }
         return files;
@@ -28,7 +29,7 @@ QList<FileInfo> FileScanner::scanPath(const QString &path,
         return files;
     }
 
-    scanDirectory(input.absoluteFilePath(), includeText, includeBinary, includeSubfolders, 0, maxDepth, files);
+    scanDirectory(input.absoluteFilePath(), includeText, includeBinary, includeSubfolders, 0, maxDepth, nameFilters, files);
     return files;
 }
 
@@ -38,13 +39,14 @@ void FileScanner::scanDirectory(const QString &dirPath,
                                 bool includeSubfolders,
                                 int currentDepth,
                                 int maxDepth,
+                                const QStringList &nameFilters,
                                 QList<FileInfo> &files) const
 {
     const QDir dir(dirPath);
     const QFileInfoList fileEntries = dir.entryInfoList(QDir::Files | QDir::NoSymLinks, QDir::Name | QDir::IgnoreCase);
     for (const QFileInfo &entry : fileEntries) {
         const FileInfo file = inspectFile(entry.absoluteFilePath());
-        if (shouldInclude(file, includeText, includeBinary)) {
+        if (shouldInclude(file, includeText, includeBinary, nameFilters)) {
             files.append(file);
         }
     }
@@ -62,6 +64,7 @@ void FileScanner::scanDirectory(const QString &dirPath,
                       includeSubfolders,
                       currentDepth + 1,
                       maxDepth,
+                      nameFilters,
                       files);
     }
 }
@@ -95,7 +98,23 @@ FileInfo FileScanner::inspectFile(const QString &filePath) const
     return info;
 }
 
-bool FileScanner::shouldInclude(const FileInfo &file, bool includeText, bool includeBinary) const
+bool FileScanner::shouldInclude(const FileInfo &file,
+                                bool includeText,
+                                bool includeBinary,
+                                const QStringList &nameFilters) const
 {
-    return (file.kind == FileKind::Text && includeText) || (file.kind == FileKind::Binary && includeBinary);
+    const bool kindMatches = (file.kind == FileKind::Text && includeText) || (file.kind == FileKind::Binary && includeBinary);
+    if (!kindMatches) {
+        return false;
+    }
+
+    if (nameFilters.isEmpty()) {
+        return true;
+    }
+
+    QStringList caseInsensitiveFilters;
+    for (const QString &filter : nameFilters) {
+        caseInsensitiveFilters.append(filter.toLower());
+    }
+    return QDir::match(caseInsensitiveFilters, file.fileName.toLower());
 }

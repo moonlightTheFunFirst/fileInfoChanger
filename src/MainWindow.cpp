@@ -5,6 +5,7 @@
 #include <QAction>
 #include <QApplication>
 #include <QCheckBox>
+#include <QComboBox>
 #include <QCoreApplication>
 #include <QDir>
 #include <QDragEnterEvent>
@@ -14,8 +15,10 @@
 #include <QHeaderView>
 #include <QHBoxLayout>
 #include <QLabel>
+#include <QLineEdit>
 #include <QMenuBar>
 #include <QMimeData>
+#include <QPushButton>
 #include <QSettings>
 #include <QSplitter>
 #include <QStatusBar>
@@ -69,6 +72,24 @@ void MainWindow::setupUi()
 
     rootLayout->addLayout(pathLayout);
 
+    auto *filterLayout = new QHBoxLayout();
+    filterLayout->addWidget(new QLabel(tr("フィルタ:"), central));
+
+    filterComboBox = new QComboBox(central);
+    filterComboBox->setEditable(true);
+    filterComboBox->setInsertPolicy(QComboBox::NoInsert);
+    filterComboBox->setMinimumWidth(320);
+    filterComboBox->lineEdit()->setPlaceholderText(tr("例: *.h, *.c, *.cpp"));
+    filterLayout->addWidget(filterComboBox, 1);
+
+    auto *applyFilterButton = new QPushButton(tr("適用"), central);
+    connect(applyFilterButton, &QPushButton::clicked, this, &MainWindow::applyFilter);
+    connect(filterComboBox->lineEdit(), &QLineEdit::returnPressed, this, &MainWindow::applyFilter);
+    connect(filterComboBox, &QComboBox::textActivated, this, &MainWindow::applyFilter);
+    filterLayout->addWidget(applyFilterButton);
+
+    rootLayout->addLayout(filterLayout);
+
     auto *splitter = new QSplitter(Qt::Horizontal, central);
 
     leftTable = new QTableWidget(splitter);
@@ -110,6 +131,7 @@ void MainWindow::setupUi()
     rootLayout->addWidget(splitter, 1);
 
     setCentralWidget(central);
+    loadFilterHistory();
     statusBar()->showMessage(tr("準備完了"));
 }
 
@@ -175,13 +197,26 @@ void MainWindow::loadPath(const QString &path)
                                                    showTextAction->isChecked(),
                                                    showBinaryAction->isChecked(),
                                                    includeSubfolders,
-                                                   depth);
+                                                   depth,
+                                                   currentNameFilters());
     populateLeftPane(files);
     updateSelectedPathLabel();
+    const QString filterText = filterComboBox->currentText().trimmed();
     if (includeSubfolders && target.isDir()) {
-        statusBar()->showMessage(tr("%1 件を表示（サブフォルダ深さ %2 まで）").arg(files.size()).arg(depth));
+        if (filterText.isEmpty()) {
+            statusBar()->showMessage(tr("%1 件を表示（サブフォルダ深さ %2 まで）").arg(files.size()).arg(depth));
+        } else {
+            statusBar()->showMessage(tr("%1 件を表示（フィルタ: %2 / サブフォルダ深さ %3 まで）")
+                                         .arg(files.size())
+                                         .arg(filterText)
+                                         .arg(depth));
+        }
     } else {
-        statusBar()->showMessage(tr("%1 件を表示").arg(files.size()));
+        if (filterText.isEmpty()) {
+            statusBar()->showMessage(tr("%1 件を表示").arg(files.size()));
+        } else {
+            statusBar()->showMessage(tr("%1 件を表示（フィルタ: %2）").arg(files.size()).arg(filterText));
+        }
     }
 }
 
@@ -190,6 +225,22 @@ void MainWindow::refreshCurrentPath()
     if (!currentPath.isEmpty()) {
         loadPath(currentPath);
     }
+}
+
+void MainWindow::applyFilter()
+{
+    const QString filterText = filterComboBox->currentText().trimmed();
+    if (!filterText.isEmpty() && filterComboBox->findText(filterText, Qt::MatchFixedString) < 0) {
+        filterComboBox->insertItem(0, filterText);
+        filterComboBox->setCurrentIndex(0);
+    }
+
+    while (filterComboBox->count() > 20) {
+        filterComboBox->removeItem(filterComboBox->count() - 1);
+    }
+
+    saveFilterHistory();
+    refreshCurrentPath();
 }
 
 void MainWindow::populateLeftPane(const QList<FileInfo> &files)
@@ -241,6 +292,52 @@ void MainWindow::updateSelectedPathLabel()
     pathLabel->setText(tr("ファイルまたはフォルダを開くか、ここへドラッグ＆ドロップしてください。"));
 }
 
+void MainWindow::loadFilterHistory()
+{
+    QSettings settings(configPath(), QSettings::IniFormat);
+    const QStringList filters = settings.value(QStringLiteral("Filter/history")).toStringList();
+    for (const QString &filter : filters) {
+        if (!filter.trimmed().isEmpty()) {
+            filterComboBox->addItem(filter.trimmed());
+        }
+    }
+    filterComboBox->setCurrentText(QString());
+}
+
+void MainWindow::saveFilterHistory()
+{
+    QStringList filters;
+    for (int i = 0; i < filterComboBox->count(); ++i) {
+        const QString filter = filterComboBox->itemText(i).trimmed();
+        if (!filter.isEmpty() && !filters.contains(filter, Qt::CaseInsensitive)) {
+            filters.append(filter);
+        }
+    }
+
+    QSettings settings(configPath(), QSettings::IniFormat);
+    settings.setValue(QStringLiteral("Filter/history"), filters);
+}
+
+QStringList MainWindow::currentNameFilters() const
+{
+    const QString filterText = filterComboBox->currentText();
+    QStringList filters;
+    for (const QString &part : filterText.split(QLatin1Char(','), Qt::SkipEmptyParts)) {
+        const QString filter = part.trimmed();
+        if (!filter.isEmpty()) {
+            filters.append(filter);
+        }
+    }
+    return filters;
+}
+
+QString MainWindow::configPath() const
+{
+    const QString appConfigPath = QCoreApplication::applicationDirPath() + QStringLiteral("/fileInfoChanger.ini");
+    const QString cwdConfigPath = QDir::currentPath() + QStringLiteral("/fileInfoChanger.ini");
+    return QFileInfo::exists(appConfigPath) ? appConfigPath : cwdConfigPath;
+}
+
 QString MainWindow::kindText(FileKind kind) const
 {
     switch (kind) {
@@ -256,11 +353,7 @@ QString MainWindow::kindText(FileKind kind) const
 
 int MainWindow::maxScanDepth() const
 {
-    const QString appConfigPath = QCoreApplication::applicationDirPath() + QStringLiteral("/fileInfoChanger.ini");
-    const QString cwdConfigPath = QDir::currentPath() + QStringLiteral("/fileInfoChanger.ini");
-    const QString configPath = QFileInfo::exists(appConfigPath) ? appConfigPath : cwdConfigPath;
-
-    QSettings settings(configPath, QSettings::IniFormat);
+    QSettings settings(configPath(), QSettings::IniFormat);
     const int depth = settings.value(QStringLiteral("Scan/maxDepth"), 5).toInt();
     return qBound(0, depth, 100);
 }
