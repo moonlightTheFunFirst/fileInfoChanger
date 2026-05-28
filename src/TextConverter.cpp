@@ -10,30 +10,84 @@
 
 TextConverter::Result TextConverter::convertEncoding(const QString &filePath, const QString &targetEncoding)
 {
-    QFile input(filePath);
-    if (!input.open(QIODevice::ReadOnly)) {
-        return {false, QStringLiteral("読み込み不可")};
-    }
-
-    const QByteArray originalData = input.readAll();
-    input.close();
-
-    const FileKind kind = TextInspector::detectKind(originalData);
-    if (kind != FileKind::Text) {
-        return {false, QStringLiteral("テキストファイルではありません")};
-    }
-
+    QByteArray originalData;
     QString text;
-    QString errorMessage;
-    if (!decodeText(originalData, &text, &errorMessage)) {
-        return {false, errorMessage};
+    QString detectedEncoding;
+    const Result readResult = readTextFile(filePath, &originalData, &text, &detectedEncoding);
+    if (!readResult.success) {
+        return readResult;
     }
 
+    QString errorMessage;
     QByteArray convertedData;
     if (!encodeText(text, targetEncoding, &convertedData, &errorMessage)) {
         return {false, errorMessage};
     }
 
+    return writeConvertedData(filePath, convertedData);
+}
+
+TextConverter::Result TextConverter::convertNewline(const QString &filePath, const QString &targetNewline)
+{
+    QByteArray originalData;
+    QString text;
+    QString detectedEncoding;
+    const Result readResult = readTextFile(filePath, &originalData, &text, &detectedEncoding);
+    if (!readResult.success) {
+        return readResult;
+    }
+
+    text.replace(QStringLiteral("\r\n"), QStringLiteral("\n"));
+    text.replace(QChar('\r'), QChar('\n'));
+    if (targetNewline == QStringLiteral("CRLF")) {
+        text.replace(QStringLiteral("\n"), QStringLiteral("\r\n"));
+    } else if (targetNewline != QStringLiteral("LF")) {
+        return {false, QStringLiteral("未対応の変更先改行コード")};
+    }
+
+    QString targetEncoding = detectedEncoding;
+    if (targetEncoding == QStringLiteral("UTF-8/ASCII")) {
+        targetEncoding = QStringLiteral("UTF-8 BOMなし");
+    }
+
+    QString errorMessage;
+    QByteArray convertedData;
+    if (!encodeText(text, targetEncoding, &convertedData, &errorMessage)) {
+        return {false, errorMessage};
+    }
+
+    return writeConvertedData(filePath, convertedData);
+}
+
+TextConverter::Result TextConverter::readTextFile(const QString &filePath,
+                                                  QByteArray *originalData,
+                                                  QString *text,
+                                                  QString *detectedEncoding)
+{
+    QFile input(filePath);
+    if (!input.open(QIODevice::ReadOnly)) {
+        return {false, QStringLiteral("読み込み不可")};
+    }
+
+    *originalData = input.readAll();
+    input.close();
+
+    const FileKind kind = TextInspector::detectKind(*originalData);
+    if (kind != FileKind::Text) {
+        return {false, QStringLiteral("テキストファイルではありません")};
+    }
+
+    QString errorMessage;
+    if (!decodeText(*originalData, text, &errorMessage)) {
+        return {false, errorMessage};
+    }
+
+    *detectedEncoding = TextInspector::detectEncoding(*originalData, kind);
+    return {true, QString()};
+}
+
+TextConverter::Result TextConverter::writeConvertedData(const QString &filePath, const QByteArray &convertedData)
+{
     QSaveFile output(filePath);
     if (!output.open(QIODevice::WriteOnly)) {
         return {false, QStringLiteral("書き込み不可: %1").arg(output.errorString())};

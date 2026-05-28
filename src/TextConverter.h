@@ -13,8 +13,14 @@ public:
     };
 
     static Result convertEncoding(const QString &filePath, const QString &targetEncoding);
+    static Result convertNewline(const QString &filePath, const QString &targetNewline);
 
 private:
+    static Result readTextFile(const QString &filePath,
+                               QByteArray *originalData,
+                               QString *text,
+                               QString *detectedEncoding);
+    static Result writeConvertedData(const QString &filePath, const QByteArray &convertedData);
     static bool decodeText(const QByteArray &data, QString *text, QString *errorMessage);
     static bool encodeText(const QString &text,
                            const QString &targetEncoding,

@@ -25,6 +25,13 @@ struct EncodingChange
     bool failed = false;
 };
 
+enum class PendingOperation
+{
+    None,
+    Encoding,
+    Newline
+};
+
 class MainWindow : public QMainWindow
 {
     Q_OBJECT
@@ -46,6 +53,7 @@ private:
     void applyFilter();
     void applyStructuredFilters();
     void previewEncodingChanges();
+    void previewNewlineChanges();
     void commitEncodingChanges();
     void populateLeftPane(const QList<FileInfo> &files);
     void populateRightPane(const QVector<EncodingChange> &changes);
@@ -56,7 +64,9 @@ private:
     QString currentEncodingFilter() const;
     QString currentNewlineFilter() const;
     QVector<EncodingChange> checkedEncodingChanges() const;
+    QVector<EncodingChange> checkedNewlineChanges() const;
     bool isSameEncoding(const QString &fromEncoding, const QString &toEncoding) const;
+    bool isSameNewline(const QString &fromNewline, const QString &toNewline) const;
     QString configPath() const;
     QString kindText(FileKind kind) const;
     int maxScanDepth() const;
@@ -67,6 +77,7 @@ private:
     QComboBox *encodingFilterComboBox = nullptr;
     QComboBox *newlineFilterComboBox = nullptr;
     QComboBox *targetEncodingComboBox = nullptr;
+    QComboBox *targetNewlineComboBox = nullptr;
     QPushButton *commitEncodingButton = nullptr;
     QTableWidget *leftTable = nullptr;
     QTableWidget *rightTable = nullptr;
@@ -74,4 +85,5 @@ private:
     QAction *showBinaryAction = nullptr;
     QString currentPath;
     QVector<EncodingChange> pendingEncodingChanges;
+    PendingOperation pendingOperation = PendingOperation::None;
 };
