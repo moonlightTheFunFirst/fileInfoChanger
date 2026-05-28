@@ -14,6 +14,13 @@ class QComboBox;
 class QPushButton;
 class QTableWidget;
 
+enum class PendingOperation
+{
+    None,
+    Encoding,
+    Newline
+};
+
 struct EncodingChange
 {
     QString fileName;
@@ -21,15 +28,9 @@ struct EncodingChange
     QString fromEncoding;
     QString toEncoding;
     QString status;
+    PendingOperation operation = PendingOperation::None;
     bool succeeded = false;
     bool failed = false;
-};
-
-enum class PendingOperation
-{
-    None,
-    Encoding,
-    Newline
 };
 
 class MainWindow : public QMainWindow
@@ -53,8 +54,7 @@ private:
     void refreshCurrentPath();
     void applyFilter();
     void applyStructuredFilters();
-    void previewEncodingChanges();
-    void previewNewlineChanges();
+    void updateChangePreview();
     void commitEncodingChanges();
     void populateLeftPane(const QList<FileInfo> &files);
     void populateRightPane(const QVector<EncodingChange> &changes);
@@ -71,6 +71,7 @@ private:
     QList<FileInfo> filteredCurrentFiles() const;
     QVector<EncodingChange> checkedEncodingChanges() const;
     QVector<EncodingChange> checkedNewlineChanges() const;
+    QVector<EncodingChange> checkedRequestedChanges() const;
     bool isSameEncoding(const QString &fromEncoding, const QString &toEncoding) const;
     bool isSameNewline(const QString &fromNewline, const QString &toNewline) const;
     QString configPath() const;
@@ -84,6 +85,8 @@ private:
     QComboBox *newlineFilterComboBox = nullptr;
     QComboBox *targetEncodingComboBox = nullptr;
     QComboBox *targetNewlineComboBox = nullptr;
+    QCheckBox *changeEncodingCheckBox = nullptr;
+    QCheckBox *changeNewlineCheckBox = nullptr;
     QPushButton *commitEncodingButton = nullptr;
     QTableWidget *leftTable = nullptr;
     QTableWidget *rightTable = nullptr;
@@ -94,5 +97,4 @@ private:
     QString currentPath;
     QList<FileInfo> currentFiles;
     QVector<EncodingChange> pendingEncodingChanges;
-    PendingOperation pendingOperation = PendingOperation::None;
 };

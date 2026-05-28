@@ -16,6 +16,7 @@
 #include <QDropEvent>
 #include <QFileDialog>
 #include <QFileInfo>
+#include <QGroupBox>
 #include <QHeaderView>
 #include <QHBoxLayout>
 #include <QKeyEvent>
@@ -95,13 +96,16 @@ void MainWindow::setupUi()
     rootLayout->addLayout(pathLayout);
 
     auto *filterLayout = new QHBoxLayout();
+    filterLayout->setContentsMargins(0, 0, 0, 0);
+    filterLayout->setSpacing(6);
+    filterLayout->setAlignment(Qt::AlignLeft);
     filterLayout->addWidget(new QLabel(tr("フィルタ:"), central));
 
     filterComboBox = new QComboBox(central);
     filterComboBox->setEditable(true);
     filterComboBox->setInsertPolicy(QComboBox::NoInsert);
     filterComboBox->setMinimumWidth(180);
-    filterComboBox->setMaximumWidth(260);
+    filterComboBox->setMaximumWidth(180);
     filterComboBox->lineEdit()->setPlaceholderText(tr("例: *.h, *.c, *.cpp"));
     filterComboBox->lineEdit()->installEventFilter(this);
     filterLayout->addWidget(filterComboBox);
@@ -113,6 +117,7 @@ void MainWindow::setupUi()
     filterLayout->addWidget(new QLabel(tr("エンコード:"), central));
     encodingFilterComboBox = new QComboBox(central);
     encodingFilterComboBox->setMinimumWidth(120);
+    encodingFilterComboBox->setMaximumWidth(120);
     encodingFilterComboBox->addItems({
         tr("すべて"),
     });
@@ -122,16 +127,25 @@ void MainWindow::setupUi()
     filterLayout->addWidget(new QLabel(tr("改行:"), central));
     newlineFilterComboBox = new QComboBox(central);
     newlineFilterComboBox->setMinimumWidth(80);
+    newlineFilterComboBox->setMaximumWidth(80);
     newlineFilterComboBox->addItems({
         tr("すべて"),
     });
     connect(newlineFilterComboBox, &QComboBox::currentTextChanged, this, &MainWindow::applyStructuredFilters);
     filterLayout->addWidget(newlineFilterComboBox);
 
-    filterLayout->addSpacing(16);
-    filterLayout->addWidget(new QLabel(tr("エンコード:"), central));
+    auto *changeLayout = new QHBoxLayout();
+    changeLayout->setContentsMargins(0, 0, 0, 0);
+    changeLayout->setSpacing(6);
+    changeLayout->setAlignment(Qt::AlignLeft);
 
-    targetEncodingComboBox = new QComboBox(central);
+    auto *encodingGroup = new QGroupBox(tr("エンコード"), central);
+    encodingGroup->setMaximumWidth(210);
+    auto *encodingGroupLayout = new QHBoxLayout(encodingGroup);
+    encodingGroupLayout->setContentsMargins(8, 4, 8, 4);
+    encodingGroupLayout->setSpacing(6);
+
+    targetEncodingComboBox = new QComboBox(encodingGroup);
     targetEncodingComboBox->setMinimumWidth(130);
     targetEncodingComboBox->addItems({
         tr("UTF-8 BOMなし"),
@@ -139,34 +153,48 @@ void MainWindow::setupUi()
         tr("UTF-16"),
         tr("SJIS/CP932"),
     });
-    filterLayout->addWidget(targetEncodingComboBox);
+    connect(targetEncodingComboBox, &QComboBox::currentTextChanged, this, &MainWindow::updateChangePreview);
+    encodingGroupLayout->addWidget(targetEncodingComboBox);
 
-    auto *previewEncodingButton = new QPushButton(tr("エンコード変更"), central);
-    connect(previewEncodingButton, &QPushButton::clicked, this, &MainWindow::previewEncodingChanges);
-    filterLayout->addWidget(previewEncodingButton);
+    changeEncodingCheckBox = new QCheckBox(tr("変更"), encodingGroup);
+    connect(changeEncodingCheckBox, &QCheckBox::toggled, this, &MainWindow::updateChangePreview);
+    encodingGroupLayout->addWidget(changeEncodingCheckBox);
+    changeLayout->addWidget(encodingGroup);
 
-    filterLayout->addSpacing(12);
-    filterLayout->addWidget(new QLabel(tr("改行:"), central));
+    auto *newlineGroup = new QGroupBox(tr("改行"), central);
+    newlineGroup->setMaximumWidth(170);
+    auto *newlineGroupLayout = new QHBoxLayout(newlineGroup);
+    newlineGroupLayout->setContentsMargins(8, 4, 8, 4);
+    newlineGroupLayout->setSpacing(6);
 
-    targetNewlineComboBox = new QComboBox(central);
+    targetNewlineComboBox = new QComboBox(newlineGroup);
     targetNewlineComboBox->setMinimumWidth(80);
     targetNewlineComboBox->addItems({
         tr("CRLF"),
         tr("LF"),
     });
-    filterLayout->addWidget(targetNewlineComboBox);
+    connect(targetNewlineComboBox, &QComboBox::currentTextChanged, this, &MainWindow::updateChangePreview);
+    newlineGroupLayout->addWidget(targetNewlineComboBox);
 
-    auto *previewNewlineButton = new QPushButton(tr("改行変更"), central);
-    connect(previewNewlineButton, &QPushButton::clicked, this, &MainWindow::previewNewlineChanges);
-    filterLayout->addWidget(previewNewlineButton);
+    changeNewlineCheckBox = new QCheckBox(tr("変更"), newlineGroup);
+    connect(changeNewlineCheckBox, &QCheckBox::toggled, this, &MainWindow::updateChangePreview);
+    newlineGroupLayout->addWidget(changeNewlineCheckBox);
+    changeLayout->addWidget(newlineGroup);
 
     commitEncodingButton = new QPushButton(tr("決定"), central);
     commitEncodingButton->setEnabled(false);
     connect(commitEncodingButton, &QPushButton::clicked, this, &MainWindow::commitEncodingChanges);
-    filterLayout->addWidget(commitEncodingButton);
-    filterLayout->addStretch(1);
+    changeLayout->addWidget(commitEncodingButton);
+    changeLayout->addStretch(1);
 
-    rootLayout->addLayout(filterLayout);
+    auto *toolLayout = new QHBoxLayout();
+    toolLayout->setContentsMargins(0, 0, 0, 0);
+    toolLayout->setSpacing(0);
+    toolLayout->addLayout(filterLayout, 1);
+    toolLayout->addSpacing(36);
+    toolLayout->addLayout(changeLayout, 1);
+
+    rootLayout->addLayout(toolLayout);
 
     auto *splitter = new QSplitter(Qt::Horizontal, central);
 
@@ -199,7 +227,7 @@ void MainWindow::setupUi()
 
     rightTable = new QTableWidget(splitter);
     rightTable->setColumnCount(4);
-    rightTable->setHorizontalHeaderLabels({tr("ファイル名"), tr("現在のエンコード"), tr("変更内容"), tr("状態")});
+    rightTable->setHorizontalHeaderLabels({tr("ファイル名"), tr("現在"), tr("変更内容"), tr("状態")});
     rightTable->horizontalHeader()->setSectionResizeMode(0, QHeaderView::Stretch);
     rightTable->setEditTriggers(QAbstractItemView::NoEditTriggers);
 
@@ -313,6 +341,7 @@ void MainWindow::applyCurrentDisplayFilters()
     const QList<FileInfo> files = filteredCurrentFiles();
     populateLeftPane(files);
     updateSelectedPathLabel();
+    updateChangePreview();
 
     const QFileInfo target(currentPath);
     const int depth = maxScanDepth();
@@ -378,47 +407,29 @@ void MainWindow::applyStructuredFilters()
     applyCurrentDisplayFilters();
 }
 
-void MainWindow::previewEncodingChanges()
+void MainWindow::updateChangePreview()
 {
-    pendingOperation = PendingOperation::Encoding;
-    pendingEncodingChanges = checkedEncodingChanges();
-    rightTable->setHorizontalHeaderLabels({tr("ファイル名"), tr("現在のエンコード"), tr("変更内容"), tr("状態")});
+    pendingEncodingChanges = checkedRequestedChanges();
+    rightTable->setHorizontalHeaderLabels({tr("ファイル名"), tr("現在"), tr("変更内容"), tr("状態")});
     populateRightPane(pendingEncodingChanges);
     commitEncodingButton->setEnabled(!pendingEncodingChanges.isEmpty());
-
-    if (pendingEncodingChanges.isEmpty()) {
-        QMessageBox::information(this, tr("エンコード変更"), tr("変更対象がありません。"));
-    }
-}
-
-void MainWindow::previewNewlineChanges()
-{
-    pendingOperation = PendingOperation::Newline;
-    pendingEncodingChanges = checkedNewlineChanges();
-    rightTable->setHorizontalHeaderLabels({tr("ファイル名"), tr("現在の改行"), tr("変更内容"), tr("状態")});
-    populateRightPane(pendingEncodingChanges);
-    commitEncodingButton->setEnabled(!pendingEncodingChanges.isEmpty());
-
-    if (pendingEncodingChanges.isEmpty()) {
-        QMessageBox::information(this, tr("改行変更"), tr("変更対象がありません。"));
-    }
 }
 
 void MainWindow::commitEncodingChanges()
 {
+    pendingEncodingChanges = checkedRequestedChanges();
+    populateRightPane(pendingEncodingChanges);
+    commitEncodingButton->setEnabled(!pendingEncodingChanges.isEmpty());
+
     if (pendingEncodingChanges.isEmpty()) {
         QMessageBox::information(this, tr("変更"), tr("変更対象がありません。"));
         return;
     }
 
-    const bool isNewlineOperation = pendingOperation == PendingOperation::Newline;
-    const QString operationTitle = isNewlineOperation ? tr("改行変更") : tr("エンコード変更");
-    const QString operationLabel = isNewlineOperation ? tr("改行") : tr("エンコード");
-
     const QMessageBox::StandardButton answer = QMessageBox::question(
         this,
-        operationTitle,
-        tr("%1 件の%2を変更します。続行しますか？").arg(pendingEncodingChanges.size()).arg(operationLabel));
+        tr("変更"),
+        tr("%1 件の変更を実行します。続行しますか？").arg(pendingEncodingChanges.size()));
     if (answer != QMessageBox::Yes) {
         return;
     }
@@ -427,7 +438,7 @@ void MainWindow::commitEncodingChanges()
     QVector<EncodingChange> succeededChanges;
 
     for (EncodingChange change : pendingEncodingChanges) {
-        const TextConverter::Result result = isNewlineOperation
+        const TextConverter::Result result = change.operation == PendingOperation::Newline
             ? TextConverter::convertNewline(change.fullPath, change.toEncoding)
             : TextConverter::convertEncoding(change.fullPath, change.toEncoding);
         if (result.success) {
@@ -450,15 +461,13 @@ void MainWindow::commitEncodingChanges()
 
     QMessageBox::information(
         this,
-        operationTitle,
-        tr("%1件の%2を変更しました。\n%3件の%2変更に失敗しました。")
+        tr("変更"),
+        tr("%1件の変更を実行しました。\n%2件の変更に失敗しました。")
             .arg(succeededChanges.size())
-            .arg(operationLabel)
             .arg(failedChanges.size()));
 
     refreshCurrentPath();
     populateRightPane(pendingEncodingChanges);
-    pendingOperation = PendingOperation::None;
 }
 
 void MainWindow::populateLeftPane(const QList<FileInfo> &files)
@@ -470,6 +479,7 @@ void MainWindow::populateLeftPane(const QList<FileInfo> &files)
 
         auto *check = new QCheckBox(leftTable);
         check->setChecked(file.kind == FileKind::Text);
+        connect(check, &QCheckBox::toggled, this, &MainWindow::updateChangePreview);
         auto *checkContainer = new QWidget(leftTable);
         auto *checkLayout = new QHBoxLayout(checkContainer);
         checkLayout->setContentsMargins(0, 0, 0, 0);
@@ -512,7 +522,8 @@ void MainWindow::populateRightPane(const QVector<EncodingChange> &changes)
         auto *fromItem = new QTableWidgetItem(change.fromEncoding);
         rightTable->setItem(row, 1, fromItem);
 
-        auto *changeItem = new QTableWidgetItem(tr("%1 -> %2").arg(change.fromEncoding, change.toEncoding));
+        const QString operationText = change.operation == PendingOperation::Newline ? tr("改行") : tr("エンコード");
+        auto *changeItem = new QTableWidgetItem(tr("%1: %2 -> %3").arg(operationText, change.fromEncoding, change.toEncoding));
         changeItem->setData(Qt::ForegroundRole, QBrush(textColor));
         rightTable->setItem(row, 2, changeItem);
 
@@ -732,6 +743,7 @@ QVector<EncodingChange> MainWindow::checkedEncodingChanges() const
         change.fromEncoding = fromEncoding;
         change.toEncoding = toEncoding;
         change.status = tr("変更予定");
+        change.operation = PendingOperation::Encoding;
         changes.append(change);
     }
 
@@ -747,6 +759,18 @@ bool MainWindow::isSameEncoding(const QString &fromEncoding, const QString &toEn
         return true;
     }
     return false;
+}
+
+QVector<EncodingChange> MainWindow::checkedRequestedChanges() const
+{
+    QVector<EncodingChange> changes;
+    if (changeEncodingCheckBox && changeEncodingCheckBox->isChecked()) {
+        changes += checkedEncodingChanges();
+    }
+    if (changeNewlineCheckBox && changeNewlineCheckBox->isChecked()) {
+        changes += checkedNewlineChanges();
+    }
+    return changes;
 }
 
 QVector<EncodingChange> MainWindow::checkedNewlineChanges() const
@@ -781,6 +805,7 @@ QVector<EncodingChange> MainWindow::checkedNewlineChanges() const
         change.fromEncoding = fromNewline;
         change.toEncoding = toNewline;
         change.status = tr("変更予定");
+        change.operation = PendingOperation::Newline;
         changes.append(change);
     }
 
