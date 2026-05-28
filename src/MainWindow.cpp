@@ -4,6 +4,7 @@
 #include "TextConverter.h"
 
 #include <QAction>
+#include <QActionGroup>
 #include <QApplication>
 #include <QBrush>
 #include <QCheckBox>
@@ -17,12 +18,14 @@
 #include <QFileInfo>
 #include <QHeaderView>
 #include <QHBoxLayout>
+#include <QKeyEvent>
 #include <QLabel>
 #include <QLineEdit>
 #include <QMenuBar>
 #include <QMessageBox>
 #include <QMimeData>
 #include <QPushButton>
+#include <QtGlobal>
 #include <QSettings>
 #include <QSplitter>
 #include <QStatusBar>
@@ -60,6 +63,21 @@ void MainWindow::dropEvent(QDropEvent *event)
     }
 }
 
+bool MainWindow::eventFilter(QObject *watched, QEvent *event)
+{
+    if (watched == filterComboBox->lineEdit() && event->type() == QEvent::KeyPress) {
+        auto *keyEvent = static_cast<QKeyEvent *>(event);
+        if (keyEvent->key() == Qt::Key_Escape) {
+            filterComboBox->setCurrentText(QString());
+            saveFilterHistory();
+            refreshCurrentPath();
+            return true;
+        }
+    }
+
+    return QMainWindow::eventFilter(watched, event);
+}
+
 void MainWindow::setupUi()
 {
     auto *central = new QWidget(this);
@@ -85,48 +103,36 @@ void MainWindow::setupUi()
     filterComboBox->setMinimumWidth(180);
     filterComboBox->setMaximumWidth(260);
     filterComboBox->lineEdit()->setPlaceholderText(tr("例: *.h, *.c, *.cpp"));
+    filterComboBox->lineEdit()->installEventFilter(this);
     filterLayout->addWidget(filterComboBox);
 
-    auto *applyFilterButton = new QPushButton(tr("適用"), central);
-    connect(applyFilterButton, &QPushButton::clicked, this, &MainWindow::applyFilter);
     connect(filterComboBox->lineEdit(), &QLineEdit::returnPressed, this, &MainWindow::applyFilter);
     connect(filterComboBox, &QComboBox::textActivated, this, &MainWindow::applyFilter);
-    filterLayout->addWidget(applyFilterButton);
 
     filterLayout->addSpacing(12);
     filterLayout->addWidget(new QLabel(tr("エンコード:"), central));
     encodingFilterComboBox = new QComboBox(central);
+    encodingFilterComboBox->setMinimumWidth(120);
     encodingFilterComboBox->addItems({
         tr("すべて"),
-        tr("UTF-8/ASCII"),
-        tr("UTF-8 BOMなし"),
-        tr("UTF-8 BOMあり"),
-        tr("UTF-16"),
-        tr("SJIS/CP932"),
-        tr("不明"),
-        tr("読込不可"),
     });
     connect(encodingFilterComboBox, &QComboBox::currentTextChanged, this, &MainWindow::applyStructuredFilters);
     filterLayout->addWidget(encodingFilterComboBox);
 
     filterLayout->addWidget(new QLabel(tr("改行:"), central));
     newlineFilterComboBox = new QComboBox(central);
+    newlineFilterComboBox->setMinimumWidth(80);
     newlineFilterComboBox->addItems({
         tr("すべて"),
-        tr("CRLF"),
-        tr("LF"),
-        tr("CR"),
-        tr("混在"),
-        tr("なし"),
-        tr("-"),
     });
     connect(newlineFilterComboBox, &QComboBox::currentTextChanged, this, &MainWindow::applyStructuredFilters);
     filterLayout->addWidget(newlineFilterComboBox);
 
     filterLayout->addSpacing(16);
-    filterLayout->addWidget(new QLabel(tr("変更先エンコード:"), central));
+    filterLayout->addWidget(new QLabel(tr("エンコード:"), central));
 
     targetEncodingComboBox = new QComboBox(central);
+    targetEncodingComboBox->setMinimumWidth(130);
     targetEncodingComboBox->addItems({
         tr("UTF-8 BOMなし"),
         tr("UTF-8 BOMあり"),
@@ -140,9 +146,10 @@ void MainWindow::setupUi()
     filterLayout->addWidget(previewEncodingButton);
 
     filterLayout->addSpacing(12);
-    filterLayout->addWidget(new QLabel(tr("変更先改行:"), central));
+    filterLayout->addWidget(new QLabel(tr("改行:"), central));
 
     targetNewlineComboBox = new QComboBox(central);
+    targetNewlineComboBox->setMinimumWidth(80);
     targetNewlineComboBox->addItems({
         tr("CRLF"),
         tr("LF"),
@@ -177,6 +184,9 @@ void MainWindow::setupUi()
     leftTable->horizontalHeader()->setStretchLastSection(false);
     leftTable->horizontalHeader()->setSectionResizeMode(0, QHeaderView::ResizeToContents);
     leftTable->horizontalHeader()->setSectionResizeMode(1, QHeaderView::Stretch);
+    leftTable->horizontalHeader()->setMinimumSectionSize(72);
+    leftTable->setColumnWidth(5, 120);
+    leftTable->setColumnWidth(6, 90);
     leftTable->setSelectionBehavior(QAbstractItemView::SelectRows);
     leftTable->setEditTriggers(QAbstractItemView::NoEditTriggers);
     connect(leftTable, &QTableWidget::currentCellChanged, this, &MainWindow::updateSelectedPathLabel);
@@ -203,6 +213,7 @@ void MainWindow::setupUi()
 
     setCentralWidget(central);
     loadFilterHistory();
+    applyViewMode();
     statusBar()->showMessage(tr("準備完了"));
 }
 
@@ -223,6 +234,28 @@ void MainWindow::setupMenus()
     connect(exitAction, &QAction::triggered, qApp, &QApplication::quit);
 
     auto *viewMenu = menuBar()->addMenu(tr("表示"));
+    auto *viewModeGroup = new QActionGroup(this);
+
+    standardViewAction = viewMenu->addAction(tr("標準"));
+    standardViewAction->setCheckable(true);
+    standardViewAction->setActionGroup(viewModeGroup);
+    standardViewAction->setChecked(true);
+
+    detailViewAction = viewMenu->addAction(tr("詳細"));
+    detailViewAction->setCheckable(true);
+    detailViewAction->setActionGroup(viewModeGroup);
+
+    connect(standardViewAction, &QAction::triggered, this, [this]() {
+        applyViewMode();
+        saveViewMode();
+    });
+    connect(detailViewAction, &QAction::triggered, this, [this]() {
+        applyViewMode();
+        saveViewMode();
+    });
+
+    viewMenu->addSeparator();
+
     showTextAction = viewMenu->addAction(tr("テキストファイル"));
     showTextAction->setCheckable(true);
     showTextAction->setChecked(true);
@@ -269,11 +302,21 @@ void MainWindow::loadPath(const QString &path)
                                                    showBinaryAction->isChecked(),
                                                    includeSubfolders,
                                                    depth,
-                                                   currentNameFilters(),
-                                                   currentEncodingFilter(),
-                                                   currentNewlineFilter());
+                                                   currentNameFilters());
+    currentFiles = files;
+    updateStructuredFilterOptions(currentFiles);
+    applyCurrentDisplayFilters();
+}
+
+void MainWindow::applyCurrentDisplayFilters()
+{
+    const QList<FileInfo> files = filteredCurrentFiles();
     populateLeftPane(files);
     updateSelectedPathLabel();
+
+    const QFileInfo target(currentPath);
+    const int depth = maxScanDepth();
+    const bool includeSubfolders = includeSubfoldersCheckBox->isChecked();
     const QStringList activeFilters = {
         filterComboBox->currentText().trimmed().isEmpty() ? QString() : tr("ファイル名: %1").arg(filterComboBox->currentText().trimmed()),
         currentEncodingFilter().isEmpty() ? QString() : tr("エンコード: %1").arg(currentEncodingFilter()),
@@ -332,7 +375,7 @@ void MainWindow::applyStructuredFilters()
     QSettings settings(configPath(), QSettings::IniFormat);
     settings.setValue(QStringLiteral("Filter/encoding"), encodingFilterComboBox->currentText());
     settings.setValue(QStringLiteral("Filter/newline"), newlineFilterComboBox->currentText());
-    refreshCurrentPath();
+    applyCurrentDisplayFilters();
 }
 
 void MainWindow::previewEncodingChanges()
@@ -447,6 +490,9 @@ void MainWindow::populateLeftPane(const QList<FileInfo> &files)
 
     leftTable->resizeColumnsToContents();
     leftTable->horizontalHeader()->setSectionResizeMode(1, QHeaderView::Stretch);
+    leftTable->setColumnWidth(5, qMax(leftTable->columnWidth(5), 120));
+    leftTable->setColumnWidth(6, qMax(leftTable->columnWidth(6), 90));
+    applyViewMode();
 }
 
 void MainWindow::populateRightPane(const QVector<EncodingChange> &changes)
@@ -477,6 +523,63 @@ void MainWindow::populateRightPane(const QVector<EncodingChange> &changes)
 
     rightTable->resizeColumnsToContents();
     rightTable->horizontalHeader()->setSectionResizeMode(0, QHeaderView::Stretch);
+}
+
+void MainWindow::updateStructuredFilterOptions(const QList<FileInfo> &files)
+{
+    const QString previousEncoding = encodingFilterComboBox->currentText();
+    const QString previousNewline = newlineFilterComboBox->currentText();
+
+    QStringList encodings;
+    QStringList newlines;
+    for (const FileInfo &file : files) {
+        if (!file.encoding.isEmpty() && !encodings.contains(file.encoding)) {
+            encodings.append(file.encoding);
+        }
+        if (!file.newline.isEmpty() && !newlines.contains(file.newline)) {
+            newlines.append(file.newline);
+        }
+    }
+    encodings.sort(Qt::CaseInsensitive);
+    newlines.sort(Qt::CaseInsensitive);
+
+    const bool encodingBlocked = encodingFilterComboBox->blockSignals(true);
+    encodingFilterComboBox->clear();
+    encodingFilterComboBox->addItem(tr("すべて"));
+    encodingFilterComboBox->addItems(encodings);
+    const int encodingIndex = encodingFilterComboBox->findText(previousEncoding);
+    encodingFilterComboBox->setCurrentIndex(encodingIndex >= 0 ? encodingIndex : 0);
+    encodingFilterComboBox->blockSignals(encodingBlocked);
+
+    const bool newlineBlocked = newlineFilterComboBox->blockSignals(true);
+    newlineFilterComboBox->clear();
+    newlineFilterComboBox->addItem(tr("すべて"));
+    newlineFilterComboBox->addItems(newlines);
+    const int newlineIndex = newlineFilterComboBox->findText(previousNewline);
+    newlineFilterComboBox->setCurrentIndex(newlineIndex >= 0 ? newlineIndex : 0);
+    newlineFilterComboBox->blockSignals(newlineBlocked);
+
+    QSettings settings(configPath(), QSettings::IniFormat);
+    settings.setValue(QStringLiteral("Filter/encoding"), encodingFilterComboBox->currentText());
+    settings.setValue(QStringLiteral("Filter/newline"), newlineFilterComboBox->currentText());
+}
+
+void MainWindow::applyViewMode()
+{
+    const bool detailMode = detailViewAction && detailViewAction->isChecked();
+    leftTable->setColumnHidden(2, !detailMode);
+    leftTable->setColumnHidden(3, !detailMode);
+    leftTable->horizontalHeader()->setSectionResizeMode(1, QHeaderView::Stretch);
+    leftTable->setColumnWidth(5, qMax(leftTable->columnWidth(5), 120));
+    leftTable->setColumnWidth(6, qMax(leftTable->columnWidth(6), 90));
+}
+
+void MainWindow::saveViewMode()
+{
+    QSettings settings(configPath(), QSettings::IniFormat);
+    settings.setValue(QStringLiteral("View/mode"), detailViewAction && detailViewAction->isChecked()
+                                                   ? QStringLiteral("detail")
+                                                   : QStringLiteral("standard"));
 }
 
 void MainWindow::updateSelectedPathLabel()
@@ -510,15 +613,32 @@ void MainWindow::loadFilterHistory()
     filterComboBox->setCurrentText(QString());
 
     const QString encodingFilter = settings.value(QStringLiteral("Filter/encoding"), tr("すべて")).toString();
+    const bool encodingBlocked = encodingFilterComboBox->blockSignals(true);
+    if (encodingFilterComboBox->findText(encodingFilter) < 0) {
+        encodingFilterComboBox->addItem(encodingFilter);
+    }
     const int encodingIndex = encodingFilterComboBox->findText(encodingFilter);
     if (encodingIndex >= 0) {
         encodingFilterComboBox->setCurrentIndex(encodingIndex);
     }
+    encodingFilterComboBox->blockSignals(encodingBlocked);
 
     const QString newlineFilter = settings.value(QStringLiteral("Filter/newline"), tr("すべて")).toString();
+    const bool newlineBlocked = newlineFilterComboBox->blockSignals(true);
+    if (newlineFilterComboBox->findText(newlineFilter) < 0) {
+        newlineFilterComboBox->addItem(newlineFilter);
+    }
     const int newlineIndex = newlineFilterComboBox->findText(newlineFilter);
     if (newlineIndex >= 0) {
         newlineFilterComboBox->setCurrentIndex(newlineIndex);
+    }
+    newlineFilterComboBox->blockSignals(newlineBlocked);
+
+    const QString viewMode = settings.value(QStringLiteral("View/mode"), QStringLiteral("standard")).toString();
+    if (detailViewAction && viewMode == QStringLiteral("detail")) {
+        detailViewAction->setChecked(true);
+    } else if (standardViewAction) {
+        standardViewAction->setChecked(true);
     }
 }
 
@@ -559,6 +679,25 @@ QString MainWindow::currentNewlineFilter() const
 {
     const QString filter = newlineFilterComboBox->currentText();
     return filter == tr("すべて") ? QString() : filter;
+}
+
+QList<FileInfo> MainWindow::filteredCurrentFiles() const
+{
+    const QString encodingFilter = currentEncodingFilter();
+    const QString newlineFilter = currentNewlineFilter();
+    QList<FileInfo> files;
+
+    for (const FileInfo &file : currentFiles) {
+        if (!encodingFilter.isEmpty() && file.encoding != encodingFilter) {
+            continue;
+        }
+        if (!newlineFilter.isEmpty() && file.newline != newlineFilter) {
+            continue;
+        }
+        files.append(file);
+    }
+
+    return files;
 }
 
 QVector<EncodingChange> MainWindow::checkedEncodingChanges() const

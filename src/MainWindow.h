@@ -42,6 +42,7 @@ public:
 protected:
     void dragEnterEvent(QDragEnterEvent *event) override;
     void dropEvent(QDropEvent *event) override;
+    bool eventFilter(QObject *watched, QEvent *event) override;
 
 private:
     void setupUi();
@@ -57,12 +58,17 @@ private:
     void commitEncodingChanges();
     void populateLeftPane(const QList<FileInfo> &files);
     void populateRightPane(const QVector<EncodingChange> &changes);
+    void updateStructuredFilterOptions(const QList<FileInfo> &files);
+    void applyCurrentDisplayFilters();
+    void applyViewMode();
+    void saveViewMode();
     void updateSelectedPathLabel();
     void loadFilterHistory();
     void saveFilterHistory();
     QStringList currentNameFilters() const;
     QString currentEncodingFilter() const;
     QString currentNewlineFilter() const;
+    QList<FileInfo> filteredCurrentFiles() const;
     QVector<EncodingChange> checkedEncodingChanges() const;
     QVector<EncodingChange> checkedNewlineChanges() const;
     bool isSameEncoding(const QString &fromEncoding, const QString &toEncoding) const;
@@ -83,7 +89,10 @@ private:
     QTableWidget *rightTable = nullptr;
     QAction *showTextAction = nullptr;
     QAction *showBinaryAction = nullptr;
+    QAction *standardViewAction = nullptr;
+    QAction *detailViewAction = nullptr;
     QString currentPath;
+    QList<FileInfo> currentFiles;
     QVector<EncodingChange> pendingEncodingChanges;
     PendingOperation pendingOperation = PendingOperation::None;
 };
