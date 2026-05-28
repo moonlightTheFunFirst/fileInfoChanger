@@ -196,9 +196,9 @@ void MainWindow::setupUi()
     splitter->addWidget(leftTable);
     splitter->addWidget(arrowLabel);
     splitter->addWidget(rightTable);
-    splitter->setStretchFactor(0, 3);
+    splitter->setStretchFactor(0, 1);
     splitter->setStretchFactor(1, 0);
-    splitter->setStretchFactor(2, 2);
+    splitter->setStretchFactor(2, 1);
     rootLayout->addWidget(splitter, 1);
 
     setCentralWidget(central);
