@@ -3,6 +3,7 @@ setlocal
 
 set "ROOT=%~dp0"
 set "MINGW_DIR=F:\msys64\mingw64"
+set "QT_PLUGIN_DIR=%MINGW_DIR%\share\qt6\plugins"
 set "BUILD_DIR=%ROOT%build-release"
 set "DEPLOY_DIR=%ROOT%deploy\fileInfoChanger"
 
@@ -17,12 +18,6 @@ if errorlevel 1 (
 where ninja >nul 2>nul
 if errorlevel 1 (
     echo ninja was not found.
-    exit /b 1
-)
-
-where windeployqt >nul 2>nul
-if errorlevel 1 (
-    echo windeployqt was not found.
     exit /b 1
 )
 
@@ -46,22 +41,19 @@ if exist "%ROOT%fileInfoChanger.ini" (
     if errorlevel 1 exit /b %errorlevel%
 )
 
-windeployqt --release --compiler-runtime "%DEPLOY_DIR%\fileInfoChanger.exe"
-if errorlevel 1 exit /b %errorlevel%
-
 for %%D in (
+    Qt6Core.dll
+    Qt6Gui.dll
+    Qt6Svg.dll
+    Qt6Widgets.dll
     libb2-1.dll
     libbrotlicommon.dll
     libbrotlidec.dll
     libbz2-1.dll
     libdouble-conversion.dll
-    libffi-8.dll
     libfreetype-6.dll
     libgcc_s_seh-1.dll
-    libgio-2.0-0.dll
     libglib-2.0-0.dll
-    libgmodule-2.0-0.dll
-    libgobject-2.0-0.dll
     libgraphite2.dll
     libharfbuzz-0.dll
     libiconv-2.dll
@@ -69,7 +61,6 @@ for %%D in (
     libicuin78.dll
     libicuuc78.dll
     libintl-8.dll
-    libjpeg-8.dll
     libmd4c.dll
     libpcre2-16-0.dll
     libpcre2-8-0.dll
@@ -87,6 +78,16 @@ for %%D in (
     copy /Y "%MINGW_DIR%\bin\%%D" "%DEPLOY_DIR%\%%D" >nul
     if errorlevel 1 exit /b %errorlevel%
 )
+
+mkdir "%DEPLOY_DIR%\platforms"
+if errorlevel 1 exit /b %errorlevel%
+copy /Y "%QT_PLUGIN_DIR%\platforms\qwindows.dll" "%DEPLOY_DIR%\platforms\qwindows.dll" >nul
+if errorlevel 1 exit /b %errorlevel%
+
+mkdir "%DEPLOY_DIR%\iconengines"
+if errorlevel 1 exit /b %errorlevel%
+copy /Y "%QT_PLUGIN_DIR%\iconengines\qsvgicon.dll" "%DEPLOY_DIR%\iconengines\qsvgicon.dll" >nul
+if errorlevel 1 exit /b %errorlevel%
 
 if not exist "%DEPLOY_DIR%\Qt6Core.dll" (
     echo Qt6Core.dll was not deployed.
