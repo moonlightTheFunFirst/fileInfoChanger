@@ -276,18 +276,14 @@ void MainWindow::setupUi()
     connect(commitEncodingButton, &QPushButton::clicked, this, &MainWindow::commitEncodingChanges);
 
     clearRenameQueueButton = new QPushButton(tr("クリア"), central);
+    clearRenameQueueButton->setEnabled(false);
     clearRenameQueueButton->setSizePolicy(QSizePolicy::Fixed, QSizePolicy::Fixed);
     connect(clearRenameQueueButton, &QPushButton::clicked, this, &MainWindow::clearRenameQueueItems);
 
-    auto *buttonColumnWidget = new QWidget(central);
-    buttonColumnWidget->setSizePolicy(QSizePolicy::Fixed, QSizePolicy::Fixed);
-    auto *buttonColumn = new QVBoxLayout(buttonColumnWidget);
-    buttonColumn->setContentsMargins(0, 0, 0, 0);
-    buttonColumn->setSpacing(2);
-    buttonColumn->addWidget(clearRenameQueueButton);
-    buttonColumn->addWidget(commitEncodingButton);
-    changeLayout->addWidget(buttonColumnWidget);
-    changeLayout->setAlignment(buttonColumnWidget, Qt::AlignBottom);
+    changeLayout->addWidget(commitEncodingButton);
+    changeLayout->setAlignment(commitEncodingButton, Qt::AlignBottom);
+    changeLayout->addWidget(clearRenameQueueButton);
+    changeLayout->setAlignment(clearRenameQueueButton, Qt::AlignBottom);
     changeLayout->addStretch(1);
 
     auto *toolLayout = new QHBoxLayout();
@@ -665,6 +661,7 @@ void MainWindow::populateLeftPane(const QList<FileInfo> &files)
 
 void MainWindow::populateRenameQueuePane()
 {
+    clearRenameQueueButton->setEnabled(!renameQueueItems.isEmpty());
     rightTable->setRowCount(renameQueueItems.size());
 
     for (int row = 0; row < renameQueueItems.size(); ++row) {
