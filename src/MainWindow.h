@@ -75,6 +75,10 @@ private:
     void openRenameDialog();
     bool applyRenameTemplate(const QString &renameTemplate, bool preserveExtension, const QString &replacementExtension);
     QString buildRenameName(const QString &renameTemplate, int index, QString *errorMessage) const;
+    QString buildRenameBaseName(const QString &sourcePath,
+                                const QString &renameTemplate,
+                                int index,
+                                QString *errorMessage) const;
     QString buildFinalRenameName(const QString &sourcePath,
                                  const QString &baseName,
                                  bool preserveExtension,

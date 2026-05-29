@@ -46,6 +46,24 @@
 #include <algorithm>
 #include <functional>
 
+namespace
+{
+int findUnescapedMarker(const QString &text, QChar marker)
+{
+    for (int i = 0; i < text.size(); ++i) {
+        if (text.at(i) != marker) {
+            continue;
+        }
+        if (i + 1 < text.size() && text.at(i + 1) == marker) {
+            ++i;
+            continue;
+        }
+        return i;
+    }
+    return -1;
+}
+}
+
 MainWindow::MainWindow(QWidget *parent)
     : QMainWindow(parent)
 {
@@ -855,7 +873,7 @@ void MainWindow::openRenameDialog()
         for (int row = 0; row < renameQueueItems.size(); ++row) {
             const RenameQueueItem &item = renameQueueItems.at(row);
             QString errorMessage;
-            const QString baseName = buildRenameName(renameTemplate, row, &errorMessage);
+            const QString baseName = buildRenameBaseName(item.fullPath, renameTemplate, row, &errorMessage);
             const QString newName = errorMessage.isEmpty()
                 ? buildFinalRenameName(item.fullPath, baseName, preserveExtension, replacementExtension)
                 : QString();
@@ -943,7 +961,7 @@ bool MainWindow::applyRenameTemplate(const QString &renameTemplate, bool preserv
 
     for (int row = 0; row < renameQueueItems.size(); ++row) {
         QString errorMessage;
-        const QString baseName = buildRenameName(renameTemplate, row, &errorMessage);
+        const QString baseName = buildRenameBaseName(renameQueueItems.at(row).fullPath, renameTemplate, row, &errorMessage);
         const QString newName = errorMessage.isEmpty()
             ? buildFinalRenameName(renameQueueItems.at(row).fullPath, baseName, preserveExtension, replacementExtension)
             : QString();
@@ -973,6 +991,12 @@ QString MainWindow::buildRenameName(const QString &renameTemplate, int index, QS
         }
 
         output += renameTemplate.mid(position, start - position);
+        if (start + 1 < renameTemplate.size() && renameTemplate.at(start + 1) == QLatin1Char('\\')) {
+            output += QLatin1Char('\\');
+            position = start + 2;
+            continue;
+        }
+
         const int end = renameTemplate.indexOf(QLatin1Char('\\'), start + 1);
         if (end < 0) {
             if (errorMessage) {
@@ -1010,6 +1034,9 @@ QString MainWindow::buildRenameName(const QString &renameTemplate, int index, QS
         position = end + 1;
     }
 
+    output.replace(QStringLiteral("$$"), QStringLiteral("$"));
+    output.replace(QStringLiteral("^^"), QStringLiteral("^"));
+
     if (output.trimmed().isEmpty()) {
         if (errorMessage) {
             *errorMessage = tr("変更後のファイル名が空です。");
@@ -1018,6 +1045,56 @@ QString MainWindow::buildRenameName(const QString &renameTemplate, int index, QS
     }
 
     return output;
+}
+
+QString MainWindow::buildRenameBaseName(const QString &sourcePath,
+                                        const QString &renameTemplate,
+                                        int index,
+                                        QString *errorMessage) const
+{
+    if (renameTemplate.startsWith(QStringLiteral("$$"))) {
+        return buildRenameName(renameTemplate.mid(1), index, errorMessage);
+    }
+    if (renameTemplate.startsWith(QStringLiteral("^^"))) {
+        return buildRenameName(renameTemplate.mid(1), index, errorMessage);
+    }
+
+    const bool appendToCurrentName = renameTemplate.startsWith(QLatin1Char('$'));
+    const bool prependToCurrentName = renameTemplate.startsWith(QLatin1Char('^'));
+    if (!appendToCurrentName && !prependToCurrentName) {
+        return buildRenameName(renameTemplate, index, errorMessage);
+    }
+
+    const QFileInfo sourceInfo(sourcePath);
+    QString currentBaseName = sourceInfo.completeBaseName();
+    if (currentBaseName.isEmpty()) {
+        currentBaseName = sourceInfo.fileName();
+    }
+
+    const QString bodyTemplate = renameTemplate.mid(1);
+    if (prependToCurrentName) {
+        const int appendMarker = findUnescapedMarker(bodyTemplate, QLatin1Char('$'));
+        if (appendMarker >= 0) {
+            const QString prefixTemplate = bodyTemplate.left(appendMarker);
+            const QString suffixTemplate = bodyTemplate.mid(appendMarker + 1);
+            const QString prefix = buildRenameName(prefixTemplate, index, errorMessage);
+            if (errorMessage && !errorMessage->isEmpty()) {
+                return QString();
+            }
+            const QString suffix = buildRenameName(suffixTemplate, index, errorMessage);
+            if (errorMessage && !errorMessage->isEmpty()) {
+                return QString();
+            }
+            return prefix + currentBaseName + suffix;
+        }
+    }
+
+    const QString addition = buildRenameName(bodyTemplate, index, errorMessage);
+    if (errorMessage && !errorMessage->isEmpty()) {
+        return QString();
+    }
+
+    return appendToCurrentName ? currentBaseName + addition : addition + currentBaseName;
 }
 
 QString MainWindow::buildFinalRenameName(const QString &sourcePath,
