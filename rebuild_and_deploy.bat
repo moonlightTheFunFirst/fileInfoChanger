@@ -2,7 +2,7 @@
 setlocal
 
 set "ROOT=%~dp0"
-set "MINGW_DIR=D:\msys64\mingw64"
+set "MINGW_DIR=F:\msys64\mingw64"
 set "BUILD_DIR=%ROOT%build-release"
 set "DEPLOY_DIR=%ROOT%deploy\fileInfoChanger"
 
@@ -26,6 +26,8 @@ if errorlevel 1 (
     exit /b 1
 )
 
+if exist "%BUILD_DIR%" rmdir /S /Q "%BUILD_DIR%"
+
 cmake -S "%ROOT%." -B "%BUILD_DIR%" -G Ninja -DCMAKE_BUILD_TYPE=Release
 if errorlevel 1 exit /b %errorlevel%
 
@@ -46,6 +48,45 @@ if exist "%ROOT%fileInfoChanger.ini" (
 
 windeployqt --release --compiler-runtime "%DEPLOY_DIR%\fileInfoChanger.exe"
 if errorlevel 1 exit /b %errorlevel%
+
+for %%D in (
+    libb2-1.dll
+    libbrotlicommon.dll
+    libbrotlidec.dll
+    libbz2-1.dll
+    libdouble-conversion.dll
+    libffi-8.dll
+    libfreetype-6.dll
+    libgcc_s_seh-1.dll
+    libgio-2.0-0.dll
+    libglib-2.0-0.dll
+    libgmodule-2.0-0.dll
+    libgobject-2.0-0.dll
+    libgraphite2.dll
+    libharfbuzz-0.dll
+    libiconv-2.dll
+    libicudt78.dll
+    libicuin78.dll
+    libicuuc78.dll
+    libintl-8.dll
+    libjpeg-8.dll
+    libmd4c.dll
+    libpcre2-16-0.dll
+    libpcre2-8-0.dll
+    libpng16-16.dll
+    libstdc++-6.dll
+    libwinpthread-1.dll
+    libzstd.dll
+    zlib1.dll
+) do (
+    if not exist "%MINGW_DIR%\bin\%%D" (
+        echo %%D was not found in %MINGW_DIR%\bin.
+        exit /b 1
+    )
+
+    copy /Y "%MINGW_DIR%\bin\%%D" "%DEPLOY_DIR%\%%D" >nul
+    if errorlevel 1 exit /b %errorlevel%
+)
 
 if not exist "%DEPLOY_DIR%\Qt6Core.dll" (
     echo Qt6Core.dll was not deployed.

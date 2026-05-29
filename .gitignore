@@ -1,4 +1,6 @@
 build/
+build-release/
+deploy/
 *.user
 *.exe
 *.dll
