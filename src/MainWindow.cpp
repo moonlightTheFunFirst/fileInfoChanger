@@ -291,6 +291,7 @@ void MainWindow::setupUi()
     rootLayout->addLayout(toolLayout);
 
     auto *splitter = new QSplitter(Qt::Horizontal, central);
+    splitter->setHandleWidth(2);
 
     leftTable = new QTableWidget(splitter);
     leftTable->setColumnCount(7);
@@ -316,13 +317,22 @@ void MainWindow::setupUi()
     connect(leftTable, &QTableWidget::currentCellChanged, this, &MainWindow::updateSelectedPathLabel);
     connect(leftTable, &QTableWidget::cellClicked, this, &MainWindow::updateSelectedPathLabel);
 
-    addToRenameQueueButton = new QPushButton(tr("→"), splitter);
-    addToRenameQueueButton->setMinimumWidth(44);
-    addToRenameQueueButton->setMaximumWidth(56);
+    auto *arrowContainer = new QWidget(splitter);
+    arrowContainer->setFixedWidth(62);
+    arrowContainer->setSizePolicy(QSizePolicy::Fixed, QSizePolicy::Expanding);
+    auto *arrowLayout = new QHBoxLayout(arrowContainer);
+    arrowLayout->setContentsMargins(0, 0, 0, 0);
+    arrowLayout->setSpacing(0);
+
+    addToRenameQueueButton = new QPushButton(tr("→"), arrowContainer);
+    addToRenameQueueButton->setFixedWidth(48);
     addToRenameQueueButton->setMinimumHeight(54);
     addToRenameQueueButton->setSizePolicy(QSizePolicy::Fixed, QSizePolicy::Expanding);
     addToRenameQueueButton->setToolTip(tr("選択またはチェックされたファイルをリネーム対象へ追加"));
     connect(addToRenameQueueButton, &QPushButton::clicked, this, &MainWindow::addCheckedFilesToRenameQueue);
+    arrowLayout->addSpacing(7);
+    arrowLayout->addWidget(addToRenameQueueButton);
+    arrowLayout->addSpacing(7);
 
     rightTable = new QTableWidget(splitter);
     rightTable->setColumnCount(4);
@@ -338,8 +348,9 @@ void MainWindow::setupUi()
     connect(rightTable, &QTableWidget::customContextMenuRequested, this, &MainWindow::showRenameQueueContextMenu);
 
     splitter->addWidget(leftTable);
-    splitter->addWidget(addToRenameQueueButton);
+    splitter->addWidget(arrowContainer);
     splitter->addWidget(rightTable);
+    splitter->setCollapsible(1, false);
     splitter->setStretchFactor(0, 1);
     splitter->setStretchFactor(1, 0);
     splitter->setStretchFactor(2, 1);
