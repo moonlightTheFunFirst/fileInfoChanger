@@ -1,6 +1,6 @@
 cmake_minimum_required(VERSION 3.21)
 
-project(fileInfoChanger LANGUAGES CXX)
+project(fileInfoChanger LANGUAGES CXX RC)
 
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -23,6 +23,8 @@ add_executable(fileInfoChanger
     src/TextInspector.h
     src/TextConverter.cpp
     src/TextConverter.h
+    resources.qrc
+    app.rc
 )
 
 target_link_libraries(fileInfoChanger PRIVATE Qt6::Widgets)
