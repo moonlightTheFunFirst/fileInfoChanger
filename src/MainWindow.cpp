@@ -12,11 +12,16 @@
 #include <QComboBox>
 #include <QCoreApplication>
 #include <QDir>
+#include <QDialog>
+#include <QDialogButtonBox>
 #include <QDragEnterEvent>
 #include <QDropEvent>
+#include <QFile>
 #include <QFileDialog>
 #include <QFileInfo>
+#include <QFormLayout>
 #include <QGroupBox>
+#include <QHash>
 #include <QHeaderView>
 #include <QHBoxLayout>
 #include <QItemSelectionModel>
@@ -28,6 +33,7 @@
 #include <QMessageBox>
 #include <QMimeData>
 #include <QPushButton>
+#include <QRegularExpression>
 #include <QtGlobal>
 #include <QSettings>
 #include <QSizePolicy>
@@ -301,10 +307,11 @@ void MainWindow::setupUi()
     connect(addToRenameQueueButton, &QPushButton::clicked, this, &MainWindow::addCheckedFilesToRenameQueue);
 
     rightTable = new QTableWidget(splitter);
-    rightTable->setColumnCount(3);
-    rightTable->setHorizontalHeaderLabels({tr("ファイル名"), tr("パス"), tr("状態")});
+    rightTable->setColumnCount(4);
+    rightTable->setHorizontalHeaderLabels({tr("ファイル名"), tr("変更後"), tr("パス"), tr("状態")});
     rightTable->horizontalHeader()->setSectionResizeMode(0, QHeaderView::Stretch);
     rightTable->horizontalHeader()->setSectionResizeMode(1, QHeaderView::Stretch);
+    rightTable->horizontalHeader()->setSectionResizeMode(2, QHeaderView::Stretch);
     rightTable->setSelectionBehavior(QAbstractItemView::SelectRows);
     rightTable->setSelectionMode(QAbstractItemView::ExtendedSelection);
     rightTable->setEditTriggers(QAbstractItemView::NoEditTriggers);
@@ -341,6 +348,10 @@ void MainWindow::setupMenus()
     fileMenu->addSeparator();
     auto *exitAction = fileMenu->addAction(tr("終了"));
     connect(exitAction, &QAction::triggered, qApp, &QApplication::quit);
+
+    auto *editMenu = menuBar()->addMenu(tr("編集"));
+    auto *renameAction = editMenu->addAction(tr("名前の変更..."));
+    connect(renameAction, &QAction::triggered, this, &MainWindow::openRenameDialog);
 
     auto *viewMenu = menuBar()->addMenu(tr("表示"));
     auto *viewModeGroup = new QActionGroup(this);
@@ -601,18 +612,23 @@ void MainWindow::populateRenameQueuePane()
         nameItem->setData(Qt::UserRole, item.fullPath);
         rightTable->setItem(row, 0, nameItem);
 
+        auto *newNameItem = new QTableWidgetItem(item.newFileName);
+        newNameItem->setToolTip(item.newFileName);
+        rightTable->setItem(row, 1, newNameItem);
+
         auto *pathItem = new QTableWidgetItem(QFileInfo(item.fullPath).absolutePath());
         pathItem->setToolTip(item.fullPath);
-        rightTable->setItem(row, 1, pathItem);
+        rightTable->setItem(row, 2, pathItem);
 
         auto *statusItem = new QTableWidgetItem(item.status);
         statusItem->setData(Qt::ForegroundRole, QBrush(QColor(73, 80, 87)));
-        rightTable->setItem(row, 2, statusItem);
+        rightTable->setItem(row, 3, statusItem);
     }
 
     rightTable->resizeColumnsToContents();
     rightTable->horizontalHeader()->setSectionResizeMode(0, QHeaderView::Stretch);
     rightTable->horizontalHeader()->setSectionResizeMode(1, QHeaderView::Stretch);
+    rightTable->horizontalHeader()->setSectionResizeMode(2, QHeaderView::Stretch);
 }
 
 void MainWindow::addCheckedFilesToRenameQueue()
@@ -784,6 +800,263 @@ void MainWindow::showRenameQueueContextMenu(const QPoint &position)
     } else if (selectedAction == removeAction) {
         removeSelectedRenameQueueItems();
     }
+}
+
+void MainWindow::openRenameDialog()
+{
+    if (renameQueueItems.isEmpty()) {
+        QMessageBox::information(this, tr("名前の変更"), tr("右ペインにリネーム対象を追加してください。"));
+        return;
+    }
+
+    QDialog dialog(this);
+    dialog.setWindowTitle(tr("名前の変更"));
+    auto *layout = new QVBoxLayout(&dialog);
+
+    auto *formLayout = new QFormLayout();
+    auto *templateEdit = new QLineEdit(&dialog);
+    templateEdit->setPlaceholderText(tr("例: Fixed_\\AAA\\_\\000\\"));
+    formLayout->addRow(tr("テンプレート:"), templateEdit);
+    layout->addLayout(formLayout);
+
+    auto *previewTable = new QTableWidget(&dialog);
+    previewTable->setColumnCount(3);
+    previewTable->setHorizontalHeaderLabels({tr("現在"), tr("変更後"), tr("状態")});
+    previewTable->horizontalHeader()->setSectionResizeMode(0, QHeaderView::Stretch);
+    previewTable->horizontalHeader()->setSectionResizeMode(1, QHeaderView::Stretch);
+    previewTable->horizontalHeader()->setSectionResizeMode(2, QHeaderView::ResizeToContents);
+    previewTable->setEditTriggers(QAbstractItemView::NoEditTriggers);
+    previewTable->setSelectionBehavior(QAbstractItemView::SelectRows);
+    previewTable->setMinimumHeight(260);
+    layout->addWidget(previewTable);
+
+    auto updatePreview = [this, previewTable, templateEdit]() {
+        const QString renameTemplate = templateEdit->text();
+        previewTable->setRowCount(renameQueueItems.size());
+        for (int row = 0; row < renameQueueItems.size(); ++row) {
+            const RenameQueueItem &item = renameQueueItems.at(row);
+            QString errorMessage;
+            const QString newName = buildRenameName(renameTemplate, row, &errorMessage);
+
+            previewTable->setItem(row, 0, new QTableWidgetItem(item.fileName));
+            previewTable->setItem(row, 1, new QTableWidgetItem(newName));
+            previewTable->setItem(row, 2, new QTableWidgetItem(errorMessage.isEmpty() ? tr("OK") : errorMessage));
+        }
+    };
+    connect(templateEdit, &QLineEdit::textChanged, &dialog, updatePreview);
+    updatePreview();
+
+    auto *buttons = new QDialogButtonBox(QDialogButtonBox::Ok | QDialogButtonBox::Cancel, &dialog);
+    connect(buttons, &QDialogButtonBox::accepted, &dialog, &QDialog::accept);
+    connect(buttons, &QDialogButtonBox::rejected, &dialog, &QDialog::reject);
+    layout->addWidget(buttons);
+
+    if (dialog.exec() != QDialog::Accepted) {
+        return;
+    }
+
+    if (!applyRenameTemplate(templateEdit->text())) {
+        return;
+    }
+
+    QStringList errors;
+    if (!validateRenameTargets(&errors)) {
+        QMessageBox::warning(this, tr("名前の変更"), errors.join(QLatin1Char('\n')));
+        populateRenameQueuePane();
+        return;
+    }
+
+    const QMessageBox::StandardButton answer = QMessageBox::question(
+        this,
+        tr("名前の変更"),
+        tr("%1 件のファイル名を変更します。続行しますか？").arg(renameQueueItems.size()));
+    if (answer != QMessageBox::Yes) {
+        return;
+    }
+
+    int succeededCount = 0;
+    int failedCount = 0;
+    for (RenameQueueItem &item : renameQueueItems) {
+        const QFileInfo sourceInfo(item.fullPath);
+        const QString targetPath = sourceInfo.dir().absoluteFilePath(item.newFileName);
+        if (QFileInfo(targetPath).absoluteFilePath().toLower() == sourceInfo.absoluteFilePath().toLower()) {
+            item.status = tr("変更なし");
+            continue;
+        }
+
+        if (QFile::rename(item.fullPath, targetPath)) {
+            item.fileName = item.newFileName;
+            item.fullPath = QFileInfo(targetPath).absoluteFilePath();
+            item.status = tr("成功");
+            ++succeededCount;
+        } else {
+            item.status = tr("失敗");
+            ++failedCount;
+        }
+    }
+
+    populateRenameQueuePane();
+    refreshCurrentPath();
+    populateRenameQueuePane();
+
+    QMessageBox::information(
+        this,
+        tr("名前の変更"),
+        tr("%1 件の変更に成功しました。\n%2 件の変更に失敗しました。")
+            .arg(succeededCount)
+            .arg(failedCount));
+}
+
+bool MainWindow::applyRenameTemplate(const QString &renameTemplate)
+{
+    if (renameTemplate.isEmpty()) {
+        QMessageBox::warning(this, tr("名前の変更"), tr("テンプレートを入力してください。"));
+        return false;
+    }
+
+    for (int row = 0; row < renameQueueItems.size(); ++row) {
+        QString errorMessage;
+        const QString newName = buildRenameName(renameTemplate, row, &errorMessage);
+        renameQueueItems[row].newFileName = newName;
+        renameQueueItems[row].status = errorMessage.isEmpty() ? tr("変更予定") : errorMessage;
+        if (!errorMessage.isEmpty()) {
+            populateRenameQueuePane();
+            QMessageBox::warning(this, tr("名前の変更"), errorMessage);
+            return false;
+        }
+    }
+
+    populateRenameQueuePane();
+    return true;
+}
+
+QString MainWindow::buildRenameName(const QString &renameTemplate, int index, QString *errorMessage) const
+{
+    QString output;
+    int position = 0;
+
+    while (position < renameTemplate.size()) {
+        const int start = renameTemplate.indexOf(QLatin1Char('\\'), position);
+        if (start < 0) {
+            output += renameTemplate.mid(position);
+            break;
+        }
+
+        output += renameTemplate.mid(position, start - position);
+        const int end = renameTemplate.indexOf(QLatin1Char('\\'), start + 1);
+        if (end < 0) {
+            if (errorMessage) {
+                *errorMessage = tr("テンプレートの連番指定が閉じられていません。");
+            }
+            return QString();
+        }
+
+        const QString token = renameTemplate.mid(start + 1, end - start - 1);
+        if (token.isEmpty()) {
+            if (errorMessage) {
+                *errorMessage = tr("空の連番指定があります。");
+            }
+            return QString();
+        }
+
+        const bool alphaToken = std::all_of(token.cbegin(), token.cend(), [](QChar c) {
+            return c == QLatin1Char('A');
+        });
+        const bool numberToken = std::all_of(token.cbegin(), token.cend(), [](QChar c) {
+            return c == QLatin1Char('0');
+        });
+
+        if (alphaToken) {
+            output += alphabetSequence(index, token.size());
+        } else if (numberToken) {
+            output += numberSequence(index, token.size());
+        } else {
+            if (errorMessage) {
+                *errorMessage = tr("連番指定は A または 0 のみ使用できます: \\%1\\").arg(token);
+            }
+            return QString();
+        }
+
+        position = end + 1;
+    }
+
+    if (output.trimmed().isEmpty()) {
+        if (errorMessage) {
+            *errorMessage = tr("変更後のファイル名が空です。");
+        }
+        return QString();
+    }
+
+    return output;
+}
+
+QString MainWindow::alphabetSequence(int index, int minimumWidth) const
+{
+    QString result;
+    int value = qMax(0, index);
+    do {
+        const int digit = value % 26;
+        result.prepend(QChar(QLatin1Char('A' + digit)));
+        value = value / 26;
+    } while (value > 0);
+
+    while (result.size() < minimumWidth) {
+        result.prepend(QLatin1Char('A'));
+    }
+    return result;
+}
+
+QString MainWindow::numberSequence(int index, int minimumWidth) const
+{
+    return QString::number(index + 1).rightJustified(minimumWidth, QLatin1Char('0'));
+}
+
+bool MainWindow::validateRenameTargets(QStringList *errors) const
+{
+    QStringList validationErrors;
+    QHash<QString, int> targetPathCounts;
+
+    const QRegularExpression invalidChars(QStringLiteral(R"([<>:"/\\|?*])"));
+    for (const RenameQueueItem &item : renameQueueItems) {
+        const QFileInfo sourceInfo(item.fullPath);
+        const QString newName = item.newFileName.trimmed();
+        const QString targetPath = sourceInfo.dir().absoluteFilePath(newName);
+
+        if (!sourceInfo.exists()) {
+            validationErrors.append(tr("%1: 元ファイルが見つかりません。").arg(item.fileName));
+            continue;
+        }
+        if (newName.isEmpty()) {
+            validationErrors.append(tr("%1: 変更後のファイル名が空です。").arg(item.fileName));
+            continue;
+        }
+        if (newName.contains(invalidChars)) {
+            validationErrors.append(tr("%1: 変更後のファイル名に使用できない文字があります。").arg(newName));
+            continue;
+        }
+        if (newName == QStringLiteral(".") || newName == QStringLiteral("..")) {
+            validationErrors.append(tr("%1: このファイル名は使用できません。").arg(newName));
+            continue;
+        }
+
+        const QString normalizedTarget = QFileInfo(targetPath).absoluteFilePath().toLower();
+        targetPathCounts[normalizedTarget] += 1;
+
+        if (QFileInfo::exists(targetPath) && QFileInfo(targetPath).absoluteFilePath() != sourceInfo.absoluteFilePath()) {
+            validationErrors.append(tr("%1: 同名のファイルが既に存在します。").arg(newName));
+        }
+    }
+
+    for (auto it = targetPathCounts.cbegin(); it != targetPathCounts.cend(); ++it) {
+        if (it.value() > 1) {
+            validationErrors.append(tr("変更後のファイル名が重複しています: %1").arg(it.key()));
+        }
+    }
+
+    if (errors) {
+        *errors = validationErrors;
+    }
+    return validationErrors.isEmpty();
 }
 
 void MainWindow::updateStructuredFilterOptions(const QList<FileInfo> &files)

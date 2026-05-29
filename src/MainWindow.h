@@ -19,6 +19,7 @@ struct RenameQueueItem
 {
     QString fileName;
     QString fullPath;
+    QString newFileName;
     QString status;
 };
 
@@ -71,6 +72,12 @@ private:
     void clearRenameQueueItems();
     void moveSelectedRenameQueueItems(int direction);
     void showRenameQueueContextMenu(const QPoint &position);
+    void openRenameDialog();
+    bool applyRenameTemplate(const QString &renameTemplate);
+    QString buildRenameName(const QString &renameTemplate, int index, QString *errorMessage) const;
+    QString alphabetSequence(int index, int minimumWidth) const;
+    QString numberSequence(int index, int minimumWidth) const;
+    bool validateRenameTargets(QStringList *errors) const;
     void updateStructuredFilterOptions(const QList<FileInfo> &files);
     void applyCurrentDisplayFilters();
     void applyViewMode();
