@@ -270,21 +270,27 @@ void MainWindow::setupUi()
     commitEncodingButton->setEnabled(false);
     commitEncodingButton->setSizePolicy(QSizePolicy::Fixed, QSizePolicy::Fixed);
     connect(commitEncodingButton, &QPushButton::clicked, this, &MainWindow::commitEncodingChanges);
-    changeLayout->addWidget(commitEncodingButton);
-    changeLayout->setAlignment(commitEncodingButton, Qt::AlignBottom);
 
     clearRenameQueueButton = new QPushButton(tr("クリア"), central);
     clearRenameQueueButton->setSizePolicy(QSizePolicy::Fixed, QSizePolicy::Fixed);
     connect(clearRenameQueueButton, &QPushButton::clicked, this, &MainWindow::clearRenameQueueItems);
-    changeLayout->addWidget(clearRenameQueueButton);
-    changeLayout->setAlignment(clearRenameQueueButton, Qt::AlignBottom);
+
+    auto *buttonColumnWidget = new QWidget(central);
+    buttonColumnWidget->setSizePolicy(QSizePolicy::Fixed, QSizePolicy::Fixed);
+    auto *buttonColumn = new QVBoxLayout(buttonColumnWidget);
+    buttonColumn->setContentsMargins(0, 0, 0, 0);
+    buttonColumn->setSpacing(2);
+    buttonColumn->addWidget(clearRenameQueueButton);
+    buttonColumn->addWidget(commitEncodingButton);
+    changeLayout->addWidget(buttonColumnWidget);
+    changeLayout->setAlignment(buttonColumnWidget, Qt::AlignBottom);
     changeLayout->addStretch(1);
 
     auto *toolLayout = new QHBoxLayout();
     toolLayout->setContentsMargins(0, 0, 0, 0);
     toolLayout->setSpacing(0);
     toolLayout->addLayout(filterLayout);
-    toolLayout->addSpacing(36);
+    toolLayout->addSpacing(86);
     toolLayout->addLayout(changeLayout);
     toolLayout->addStretch(1);
 
