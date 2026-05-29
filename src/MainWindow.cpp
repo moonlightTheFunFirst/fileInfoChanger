@@ -811,12 +811,25 @@ void MainWindow::openRenameDialog()
 
     QDialog dialog(this);
     dialog.setWindowTitle(tr("名前の変更"));
+    dialog.resize(760, 560);
     auto *layout = new QVBoxLayout(&dialog);
 
     auto *formLayout = new QFormLayout();
     auto *templateEdit = new QLineEdit(&dialog);
     templateEdit->setPlaceholderText(tr("例: Fixed_\\AAA\\_\\000\\"));
     formLayout->addRow(tr("テンプレート:"), templateEdit);
+
+    auto *extensionModeComboBox = new QComboBox(&dialog);
+    extensionModeComboBox->addItems({
+        tr("拡張子を維持する"),
+        tr("拡張子も変更する"),
+    });
+    formLayout->addRow(tr("拡張子:"), extensionModeComboBox);
+
+    auto *extensionEdit = new QLineEdit(&dialog);
+    extensionEdit->setPlaceholderText(tr("例: txt"));
+    extensionEdit->setEnabled(false);
+    formLayout->addRow(tr("変更拡張子:"), extensionEdit);
     layout->addLayout(formLayout);
 
     auto *previewTable = new QTableWidget(&dialog);
@@ -827,16 +840,25 @@ void MainWindow::openRenameDialog()
     previewTable->horizontalHeader()->setSectionResizeMode(2, QHeaderView::ResizeToContents);
     previewTable->setEditTriggers(QAbstractItemView::NoEditTriggers);
     previewTable->setSelectionBehavior(QAbstractItemView::SelectRows);
-    previewTable->setMinimumHeight(260);
+    previewTable->setMinimumHeight(360);
     layout->addWidget(previewTable);
 
-    auto updatePreview = [this, previewTable, templateEdit]() {
+    auto updateExtensionInput = [extensionModeComboBox, extensionEdit]() {
+        extensionEdit->setEnabled(extensionModeComboBox->currentIndex() == 1);
+    };
+
+    auto updatePreview = [this, previewTable, templateEdit, extensionModeComboBox, extensionEdit]() {
         const QString renameTemplate = templateEdit->text();
+        const bool preserveExtension = extensionModeComboBox->currentIndex() == 0;
+        const QString replacementExtension = extensionEdit->text();
         previewTable->setRowCount(renameQueueItems.size());
         for (int row = 0; row < renameQueueItems.size(); ++row) {
             const RenameQueueItem &item = renameQueueItems.at(row);
             QString errorMessage;
-            const QString newName = buildRenameName(renameTemplate, row, &errorMessage);
+            const QString baseName = buildRenameName(renameTemplate, row, &errorMessage);
+            const QString newName = errorMessage.isEmpty()
+                ? buildFinalRenameName(item.fullPath, baseName, preserveExtension, replacementExtension)
+                : QString();
 
             previewTable->setItem(row, 0, new QTableWidgetItem(item.fileName));
             previewTable->setItem(row, 1, new QTableWidgetItem(newName));
@@ -844,6 +866,11 @@ void MainWindow::openRenameDialog()
         }
     };
     connect(templateEdit, &QLineEdit::textChanged, &dialog, updatePreview);
+    connect(extensionModeComboBox, &QComboBox::currentTextChanged, &dialog, [updateExtensionInput, updatePreview]() {
+        updateExtensionInput();
+        updatePreview();
+    });
+    connect(extensionEdit, &QLineEdit::textChanged, &dialog, updatePreview);
     updatePreview();
 
     auto *buttons = new QDialogButtonBox(QDialogButtonBox::Ok | QDialogButtonBox::Cancel, &dialog);
@@ -855,7 +882,7 @@ void MainWindow::openRenameDialog()
         return;
     }
 
-    if (!applyRenameTemplate(templateEdit->text())) {
+    if (!applyRenameTemplate(templateEdit->text(), extensionModeComboBox->currentIndex() == 0, extensionEdit->text())) {
         return;
     }
 
@@ -907,7 +934,7 @@ void MainWindow::openRenameDialog()
             .arg(failedCount));
 }
 
-bool MainWindow::applyRenameTemplate(const QString &renameTemplate)
+bool MainWindow::applyRenameTemplate(const QString &renameTemplate, bool preserveExtension, const QString &replacementExtension)
 {
     if (renameTemplate.isEmpty()) {
         QMessageBox::warning(this, tr("名前の変更"), tr("テンプレートを入力してください。"));
@@ -916,7 +943,10 @@ bool MainWindow::applyRenameTemplate(const QString &renameTemplate)
 
     for (int row = 0; row < renameQueueItems.size(); ++row) {
         QString errorMessage;
-        const QString newName = buildRenameName(renameTemplate, row, &errorMessage);
+        const QString baseName = buildRenameName(renameTemplate, row, &errorMessage);
+        const QString newName = errorMessage.isEmpty()
+            ? buildFinalRenameName(renameQueueItems.at(row).fullPath, baseName, preserveExtension, replacementExtension)
+            : QString();
         renameQueueItems[row].newFileName = newName;
         renameQueueItems[row].status = errorMessage.isEmpty() ? tr("変更予定") : errorMessage;
         if (!errorMessage.isEmpty()) {
@@ -988,6 +1018,27 @@ QString MainWindow::buildRenameName(const QString &renameTemplate, int index, QS
     }
 
     return output;
+}
+
+QString MainWindow::buildFinalRenameName(const QString &sourcePath,
+                                         const QString &baseName,
+                                         bool preserveExtension,
+                                         const QString &replacementExtension) const
+{
+    QString extension;
+    if (preserveExtension) {
+        extension = QFileInfo(sourcePath).suffix();
+    } else {
+        extension = replacementExtension.trimmed();
+        while (extension.startsWith(QLatin1Char('.'))) {
+            extension.remove(0, 1);
+        }
+    }
+
+    if (extension.isEmpty()) {
+        return baseName;
+    }
+    return QStringLiteral("%1.%2").arg(baseName, extension);
 }
 
 QString MainWindow::alphabetSequence(int index, int minimumWidth) const

@@ -73,8 +73,12 @@ private:
     void moveSelectedRenameQueueItems(int direction);
     void showRenameQueueContextMenu(const QPoint &position);
     void openRenameDialog();
-    bool applyRenameTemplate(const QString &renameTemplate);
+    bool applyRenameTemplate(const QString &renameTemplate, bool preserveExtension, const QString &replacementExtension);
     QString buildRenameName(const QString &renameTemplate, int index, QString *errorMessage) const;
+    QString buildFinalRenameName(const QString &sourcePath,
+                                 const QString &baseName,
+                                 bool preserveExtension,
+                                 const QString &replacementExtension) const;
     QString alphabetSequence(int index, int minimumWidth) const;
     QString numberSequence(int index, int minimumWidth) const;
     bool validateRenameTargets(QStringList *errors) const;
