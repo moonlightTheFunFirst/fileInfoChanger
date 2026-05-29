@@ -19,20 +19,26 @@
 #include <QGroupBox>
 #include <QHeaderView>
 #include <QHBoxLayout>
+#include <QItemSelectionModel>
 #include <QKeyEvent>
 #include <QLabel>
 #include <QLineEdit>
+#include <QMenu>
 #include <QMenuBar>
 #include <QMessageBox>
 #include <QMimeData>
 #include <QPushButton>
 #include <QtGlobal>
 #include <QSettings>
+#include <QSizePolicy>
 #include <QSplitter>
 #include <QStatusBar>
 #include <QTableWidget>
 #include <QUrl>
 #include <QVBoxLayout>
+
+#include <algorithm>
+#include <functional>
 
 MainWindow::MainWindow(QWidget *parent)
     : QMainWindow(parent)
@@ -72,6 +78,55 @@ bool MainWindow::eventFilter(QObject *watched, QEvent *event)
             filterComboBox->setCurrentText(QString());
             saveFilterHistory();
             refreshCurrentPath();
+            return true;
+        }
+    }
+
+    if (watched == leftTable && event->type() == QEvent::KeyPress) {
+        auto *keyEvent = static_cast<QKeyEvent *>(event);
+        if (keyEvent->key() == Qt::Key_Space) {
+            QList<int> rows;
+            for (const QModelIndex &index : leftTable->selectionModel()->selectedRows()) {
+                rows.append(index.row());
+            }
+            if (rows.isEmpty() && leftTable->currentRow() >= 0) {
+                rows.append(leftTable->currentRow());
+            }
+
+            bool shouldCheck = false;
+            for (int row : rows) {
+                const QWidget *checkContainer = leftTable->cellWidget(row, 0);
+                const QCheckBox *checkBox = checkContainer ? checkContainer->findChild<QCheckBox *>() : nullptr;
+                if (checkBox && !checkBox->isChecked()) {
+                    shouldCheck = true;
+                    break;
+                }
+            }
+
+            for (int row : rows) {
+                QWidget *checkContainer = leftTable->cellWidget(row, 0);
+                QCheckBox *checkBox = checkContainer ? checkContainer->findChild<QCheckBox *>() : nullptr;
+                if (checkBox) {
+                    checkBox->setChecked(shouldCheck);
+                }
+            }
+            return true;
+        }
+    }
+
+    if (watched == rightTable && event->type() == QEvent::KeyPress) {
+        auto *keyEvent = static_cast<QKeyEvent *>(event);
+        if (keyEvent->key() == Qt::Key_Delete) {
+            removeSelectedRenameQueueItems();
+            return true;
+        }
+        if (keyEvent->key() == Qt::Key_Space && rightTable->currentRow() >= 0) {
+            const int row = rightTable->currentRow();
+            const bool selected = rightTable->selectionModel()->isRowSelected(row, QModelIndex());
+            const QItemSelectionModel::SelectionFlags flags = selected
+                ? QItemSelectionModel::Deselect | QItemSelectionModel::Rows
+                : QItemSelectionModel::Select | QItemSelectionModel::Rows;
+            rightTable->selectionModel()->select(rightTable->model()->index(row, 0), flags);
             return true;
         }
     }
@@ -143,6 +198,8 @@ void MainWindow::setupUi()
 
     auto *encodingGroup = new QGroupBox(tr("エンコード"), central);
     encodingGroup->setMaximumWidth(210);
+    encodingGroup->setMaximumHeight(54);
+    encodingGroup->setSizePolicy(QSizePolicy::Fixed, QSizePolicy::Fixed);
     auto *encodingGroupLayout = new QHBoxLayout(encodingGroup);
     encodingGroupLayout->setContentsMargins(8, 4, 8, 4);
     encodingGroupLayout->setSpacing(6);
@@ -165,6 +222,8 @@ void MainWindow::setupUi()
 
     auto *newlineGroup = new QGroupBox(tr("改行"), central);
     newlineGroup->setMaximumWidth(170);
+    newlineGroup->setMaximumHeight(54);
+    newlineGroup->setSizePolicy(QSizePolicy::Fixed, QSizePolicy::Fixed);
     auto *newlineGroupLayout = new QHBoxLayout(newlineGroup);
     newlineGroupLayout->setContentsMargins(8, 4, 8, 4);
     newlineGroupLayout->setSpacing(6);
@@ -185,17 +244,25 @@ void MainWindow::setupUi()
 
     commitEncodingButton = new QPushButton(tr("決定"), central);
     commitEncodingButton->setEnabled(false);
+    commitEncodingButton->setSizePolicy(QSizePolicy::Fixed, QSizePolicy::Fixed);
     connect(commitEncodingButton, &QPushButton::clicked, this, &MainWindow::commitEncodingChanges);
     changeLayout->addWidget(commitEncodingButton);
     changeLayout->setAlignment(commitEncodingButton, Qt::AlignBottom);
+
+    clearRenameQueueButton = new QPushButton(tr("クリア"), central);
+    clearRenameQueueButton->setSizePolicy(QSizePolicy::Fixed, QSizePolicy::Fixed);
+    connect(clearRenameQueueButton, &QPushButton::clicked, this, &MainWindow::clearRenameQueueItems);
+    changeLayout->addWidget(clearRenameQueueButton);
+    changeLayout->setAlignment(clearRenameQueueButton, Qt::AlignBottom);
     changeLayout->addStretch(1);
 
     auto *toolLayout = new QHBoxLayout();
     toolLayout->setContentsMargins(0, 0, 0, 0);
     toolLayout->setSpacing(0);
-    toolLayout->addLayout(filterLayout, 1);
+    toolLayout->addLayout(filterLayout);
     toolLayout->addSpacing(36);
-    toolLayout->addLayout(changeLayout, 1);
+    toolLayout->addLayout(changeLayout);
+    toolLayout->addStretch(1);
 
     rootLayout->addLayout(toolLayout);
 
@@ -219,23 +286,34 @@ void MainWindow::setupUi()
     leftTable->setColumnWidth(5, 120);
     leftTable->setColumnWidth(6, 90);
     leftTable->setSelectionBehavior(QAbstractItemView::SelectRows);
+    leftTable->setSelectionMode(QAbstractItemView::ExtendedSelection);
     leftTable->setEditTriggers(QAbstractItemView::NoEditTriggers);
+    leftTable->installEventFilter(this);
     connect(leftTable, &QTableWidget::currentCellChanged, this, &MainWindow::updateSelectedPathLabel);
     connect(leftTable, &QTableWidget::cellClicked, this, &MainWindow::updateSelectedPathLabel);
 
-    auto *arrowLabel = new QLabel(tr("→"), splitter);
-    arrowLabel->setAlignment(Qt::AlignCenter);
-    arrowLabel->setMinimumWidth(24);
-    arrowLabel->setMaximumWidth(36);
+    addToRenameQueueButton = new QPushButton(tr("→"), splitter);
+    addToRenameQueueButton->setMinimumWidth(44);
+    addToRenameQueueButton->setMaximumWidth(56);
+    addToRenameQueueButton->setMinimumHeight(54);
+    addToRenameQueueButton->setSizePolicy(QSizePolicy::Fixed, QSizePolicy::Expanding);
+    addToRenameQueueButton->setToolTip(tr("選択またはチェックされたファイルをリネーム対象へ追加"));
+    connect(addToRenameQueueButton, &QPushButton::clicked, this, &MainWindow::addCheckedFilesToRenameQueue);
 
     rightTable = new QTableWidget(splitter);
-    rightTable->setColumnCount(4);
-    rightTable->setHorizontalHeaderLabels({tr("ファイル名"), tr("現在"), tr("変更内容"), tr("状態")});
+    rightTable->setColumnCount(3);
+    rightTable->setHorizontalHeaderLabels({tr("ファイル名"), tr("パス"), tr("状態")});
     rightTable->horizontalHeader()->setSectionResizeMode(0, QHeaderView::Stretch);
+    rightTable->horizontalHeader()->setSectionResizeMode(1, QHeaderView::Stretch);
+    rightTable->setSelectionBehavior(QAbstractItemView::SelectRows);
+    rightTable->setSelectionMode(QAbstractItemView::ExtendedSelection);
     rightTable->setEditTriggers(QAbstractItemView::NoEditTriggers);
+    rightTable->setContextMenuPolicy(Qt::CustomContextMenu);
+    rightTable->installEventFilter(this);
+    connect(rightTable, &QTableWidget::customContextMenuRequested, this, &MainWindow::showRenameQueueContextMenu);
 
     splitter->addWidget(leftTable);
-    splitter->addWidget(arrowLabel);
+    splitter->addWidget(addToRenameQueueButton);
     splitter->addWidget(rightTable);
     splitter->setStretchFactor(0, 1);
     splitter->setStretchFactor(1, 0);
@@ -420,15 +498,12 @@ void MainWindow::applyStructuredFilters()
 void MainWindow::updateChangePreview()
 {
     pendingEncodingChanges = checkedRequestedChanges();
-    rightTable->setHorizontalHeaderLabels({tr("ファイル名"), tr("現在"), tr("変更内容"), tr("状態")});
-    populateRightPane(pendingEncodingChanges);
     commitEncodingButton->setEnabled(!pendingEncodingChanges.isEmpty());
 }
 
 void MainWindow::commitEncodingChanges()
 {
     pendingEncodingChanges = checkedRequestedChanges();
-    populateRightPane(pendingEncodingChanges);
     commitEncodingButton->setEnabled(!pendingEncodingChanges.isEmpty());
 
     if (pendingEncodingChanges.isEmpty()) {
@@ -466,7 +541,6 @@ void MainWindow::commitEncodingChanges()
 
     pendingEncodingChanges = failedChanges;
     pendingEncodingChanges += succeededChanges;
-    populateRightPane(pendingEncodingChanges);
     commitEncodingButton->setEnabled(false);
 
     QMessageBox::information(
@@ -477,7 +551,7 @@ void MainWindow::commitEncodingChanges()
             .arg(failedChanges.size()));
 
     refreshCurrentPath();
-    populateRightPane(pendingEncodingChanges);
+    populateRenameQueuePane();
 }
 
 void MainWindow::populateLeftPane(const QList<FileInfo> &files)
@@ -515,35 +589,201 @@ void MainWindow::populateLeftPane(const QList<FileInfo> &files)
     applyViewMode();
 }
 
-void MainWindow::populateRightPane(const QVector<EncodingChange> &changes)
+void MainWindow::populateRenameQueuePane()
 {
-    rightTable->setRowCount(changes.size());
+    rightTable->setRowCount(renameQueueItems.size());
 
-    for (int row = 0; row < changes.size(); ++row) {
-        const EncodingChange &change = changes.at(row);
-        const QColor textColor = change.failed
-            ? QColor(220, 53, 69)
-            : (change.succeeded ? QColor(25, 135, 84) : QColor(184, 134, 11));
+    for (int row = 0; row < renameQueueItems.size(); ++row) {
+        const RenameQueueItem &item = renameQueueItems.at(row);
 
-        auto *nameItem = new QTableWidgetItem(change.fileName);
-        nameItem->setToolTip(change.fullPath);
+        auto *nameItem = new QTableWidgetItem(item.fileName);
+        nameItem->setToolTip(item.fullPath);
+        nameItem->setData(Qt::UserRole, item.fullPath);
         rightTable->setItem(row, 0, nameItem);
 
-        auto *fromItem = new QTableWidgetItem(change.fromEncoding);
-        rightTable->setItem(row, 1, fromItem);
+        auto *pathItem = new QTableWidgetItem(QFileInfo(item.fullPath).absolutePath());
+        pathItem->setToolTip(item.fullPath);
+        rightTable->setItem(row, 1, pathItem);
 
-        const QString operationText = change.operation == PendingOperation::Newline ? tr("改行") : tr("エンコード");
-        auto *changeItem = new QTableWidgetItem(tr("%1: %2 -> %3").arg(operationText, change.fromEncoding, change.toEncoding));
-        changeItem->setData(Qt::ForegroundRole, QBrush(textColor));
-        rightTable->setItem(row, 2, changeItem);
-
-        auto *statusItem = new QTableWidgetItem(change.status);
-        statusItem->setData(Qt::ForegroundRole, QBrush(textColor));
-        rightTable->setItem(row, 3, statusItem);
+        auto *statusItem = new QTableWidgetItem(item.status);
+        statusItem->setData(Qt::ForegroundRole, QBrush(QColor(73, 80, 87)));
+        rightTable->setItem(row, 2, statusItem);
     }
 
     rightTable->resizeColumnsToContents();
     rightTable->horizontalHeader()->setSectionResizeMode(0, QHeaderView::Stretch);
+    rightTable->horizontalHeader()->setSectionResizeMode(1, QHeaderView::Stretch);
+}
+
+void MainWindow::addCheckedFilesToRenameQueue()
+{
+    QList<int> rows;
+    for (const QModelIndex &index : leftTable->selectionModel()->selectedRows()) {
+        rows.append(index.row());
+    }
+
+    if (rows.isEmpty()) {
+        for (int row = 0; row < leftTable->rowCount(); ++row) {
+            const QWidget *checkContainer = leftTable->cellWidget(row, 0);
+            const QCheckBox *checkBox = checkContainer ? checkContainer->findChild<QCheckBox *>() : nullptr;
+            if (checkBox && checkBox->isChecked()) {
+                rows.append(row);
+            }
+        }
+    }
+
+    if (rows.isEmpty()) {
+        QMessageBox::information(this, tr("一括リネーム"), tr("追加するファイルを選択またはチェックしてください。"));
+        return;
+    }
+
+    QStringList queuedPaths;
+    for (const RenameQueueItem &item : renameQueueItems) {
+        queuedPaths.append(item.fullPath);
+    }
+
+    int addedCount = 0;
+    int skippedCount = 0;
+    std::sort(rows.begin(), rows.end());
+    rows.erase(std::unique(rows.begin(), rows.end()), rows.end());
+
+    for (int row : rows) {
+        const QTableWidgetItem *nameItem = leftTable->item(row, 1);
+        if (!nameItem) {
+            continue;
+        }
+
+        QString fullPath = nameItem->data(Qt::UserRole).toString();
+        if (fullPath.isEmpty()) {
+            fullPath = nameItem->toolTip();
+        }
+        if (fullPath.isEmpty() || queuedPaths.contains(fullPath, Qt::CaseInsensitive)) {
+            ++skippedCount;
+            continue;
+        }
+
+        RenameQueueItem item;
+        item.fileName = nameItem->text();
+        item.fullPath = fullPath;
+        item.status = tr("待機");
+        renameQueueItems.append(item);
+        queuedPaths.append(fullPath);
+        ++addedCount;
+    }
+
+    populateRenameQueuePane();
+    statusBar()->showMessage(tr("リネーム対象に %1 件追加しました。%2 件は追加済みのためスキップしました。")
+                                 .arg(addedCount)
+                                 .arg(skippedCount));
+}
+
+void MainWindow::removeSelectedRenameQueueItems()
+{
+    QList<int> rows;
+    for (const QModelIndex &index : rightTable->selectionModel()->selectedRows()) {
+        rows.append(index.row());
+    }
+    if (rows.isEmpty()) {
+        return;
+    }
+
+    std::sort(rows.begin(), rows.end(), std::greater<int>());
+    for (int row : rows) {
+        if (row >= 0 && row < renameQueueItems.size()) {
+            renameQueueItems.removeAt(row);
+        }
+    }
+
+    populateRenameQueuePane();
+    statusBar()->showMessage(tr("リネーム対象から %1 件削除しました。").arg(rows.size()));
+}
+
+void MainWindow::clearRenameQueueItems()
+{
+    if (renameQueueItems.isEmpty()) {
+        return;
+    }
+
+    const QMessageBox::StandardButton answer = QMessageBox::question(
+        this,
+        tr("クリア"),
+        tr("出力先ペインの情報を全て削除しますがよろしいですか？"));
+    if (answer != QMessageBox::Yes) {
+        return;
+    }
+
+    const int clearedCount = renameQueueItems.size();
+    renameQueueItems.clear();
+    populateRenameQueuePane();
+    statusBar()->showMessage(tr("出力先ペインの情報を %1 件削除しました。").arg(clearedCount));
+}
+
+void MainWindow::moveSelectedRenameQueueItems(int direction)
+{
+    if (direction == 0) {
+        return;
+    }
+
+    QList<int> rows;
+    for (const QModelIndex &index : rightTable->selectionModel()->selectedRows()) {
+        rows.append(index.row());
+    }
+    if (rows.isEmpty()) {
+        return;
+    }
+
+    std::sort(rows.begin(), rows.end());
+    rows.erase(std::unique(rows.begin(), rows.end()), rows.end());
+
+    QList<int> movedRows;
+    if (direction < 0) {
+        if (rows.first() == 0) {
+            return;
+        }
+        for (int row : rows) {
+            std::swap(renameQueueItems[row], renameQueueItems[row - 1]);
+            movedRows.append(row - 1);
+        }
+    } else {
+        if (rows.last() == renameQueueItems.size() - 1) {
+            return;
+        }
+        for (auto it = rows.crbegin(); it != rows.crend(); ++it) {
+            const int row = *it;
+            std::swap(renameQueueItems[row], renameQueueItems[row + 1]);
+            movedRows.prepend(row + 1);
+        }
+    }
+
+    populateRenameQueuePane();
+    rightTable->clearSelection();
+    for (int row : movedRows) {
+        rightTable->selectionModel()->select(rightTable->model()->index(row, 0),
+                                             QItemSelectionModel::Select | QItemSelectionModel::Rows);
+    }
+}
+
+void MainWindow::showRenameQueueContextMenu(const QPoint &position)
+{
+    QMenu menu(this);
+    QAction *moveUpAction = menu.addAction(tr("上へ移動"));
+    QAction *moveDownAction = menu.addAction(tr("下へ移動"));
+    menu.addSeparator();
+    QAction *removeAction = menu.addAction(tr("削除"));
+
+    const bool hasSelection = !rightTable->selectionModel()->selectedRows().isEmpty();
+    moveUpAction->setEnabled(hasSelection);
+    moveDownAction->setEnabled(hasSelection);
+    removeAction->setEnabled(hasSelection);
+
+    QAction *selectedAction = menu.exec(rightTable->viewport()->mapToGlobal(position));
+    if (selectedAction == moveUpAction) {
+        moveSelectedRenameQueueItems(-1);
+    } else if (selectedAction == moveDownAction) {
+        moveSelectedRenameQueueItems(1);
+    } else if (selectedAction == removeAction) {
+        removeSelectedRenameQueueItems();
+    }
 }
 
 void MainWindow::updateStructuredFilterOptions(const QList<FileInfo> &files)

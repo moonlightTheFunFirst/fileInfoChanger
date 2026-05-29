@@ -11,8 +11,16 @@ class QLabel;
 class QAction;
 class QCheckBox;
 class QComboBox;
+class QPoint;
 class QPushButton;
 class QTableWidget;
+
+struct RenameQueueItem
+{
+    QString fileName;
+    QString fullPath;
+    QString status;
+};
 
 enum class PendingOperation
 {
@@ -57,7 +65,12 @@ private:
     void updateChangePreview();
     void commitEncodingChanges();
     void populateLeftPane(const QList<FileInfo> &files);
-    void populateRightPane(const QVector<EncodingChange> &changes);
+    void populateRenameQueuePane();
+    void addCheckedFilesToRenameQueue();
+    void removeSelectedRenameQueueItems();
+    void clearRenameQueueItems();
+    void moveSelectedRenameQueueItems(int direction);
+    void showRenameQueueContextMenu(const QPoint &position);
     void updateStructuredFilterOptions(const QList<FileInfo> &files);
     void applyCurrentDisplayFilters();
     void applyViewMode();
@@ -87,6 +100,8 @@ private:
     QCheckBox *changeEncodingCheckBox = nullptr;
     QCheckBox *changeNewlineCheckBox = nullptr;
     QPushButton *commitEncodingButton = nullptr;
+    QPushButton *clearRenameQueueButton = nullptr;
+    QPushButton *addToRenameQueueButton = nullptr;
     QTableWidget *leftTable = nullptr;
     QTableWidget *rightTable = nullptr;
     QAction *showTextAction = nullptr;
@@ -96,4 +111,5 @@ private:
     QString currentPath;
     QList<FileInfo> currentFiles;
     QVector<EncodingChange> pendingEncodingChanges;
+    QVector<RenameQueueItem> renameQueueItems;
 };
