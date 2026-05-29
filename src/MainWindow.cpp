@@ -174,7 +174,11 @@ void MainWindow::setupUi()
     pathLayout->addWidget(includeSubfoldersCheckBox);
     pathLayout->addStretch(1);
 
+	const auto spacingSize = 20;
+    rootLayout->addSpacing(spacingSize);
     rootLayout->addLayout(pathLayout);
+    // 非推奨の操作ではあるが、サイズ調整のため、ひとまず以下のように設定しておく
+    rootLayout->addSpacing(-spacingSize);
 
     auto *filterLayout = new QHBoxLayout();
     filterLayout->setContentsMargins(0, 0, 0, 0);
