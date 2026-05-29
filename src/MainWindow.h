@@ -74,6 +74,7 @@ private:
     void showRenameQueueContextMenu(const QPoint &position);
     void openRenameDialog();
     bool applyRenameTemplate(const QString &renameTemplate, bool preserveExtension, const QString &replacementExtension);
+    bool hasPendingRenameChanges() const;
     QString buildRenameName(const QString &renameTemplate, int index, QString *errorMessage) const;
     QString buildRenameBaseName(const QString &sourcePath,
                                 const QString &renameTemplate,
