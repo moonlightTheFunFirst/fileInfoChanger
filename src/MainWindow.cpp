@@ -288,8 +288,9 @@ void MainWindow::setupUi()
 
     auto *toolLayout = new QHBoxLayout();
     toolLayout->setContentsMargins(0, 0, 0, 0);
-    toolLayout->setSpacing(0);
+    toolLayout->setSpacing(4);
     toolLayout->addLayout(filterLayout);
+    toolLayout->setAlignment(filterLayout, Qt::AlignBottom);
     toolLayout->addSpacing(86);
     toolLayout->addLayout(changeLayout);
     toolLayout->addStretch(1);
