@@ -425,6 +425,29 @@ void MainWindow::setupMenus()
     showBinaryAction->setCheckable(true);
     showBinaryAction->setChecked(false);
     connect(showBinaryAction, &QAction::toggled, this, &MainWindow::refreshCurrentPath);
+
+    menuBar()->setStyleSheet(QStringLiteral(
+        "QMenuBar {"
+        "  background-color: #2b2b2b;"
+        "  color: #f0f0f0;"
+        "  border-bottom: 1px solid #3a3a3a;"
+        "}"
+        "QMenuBar::item {"
+        "  background: transparent;"
+        "  padding: 4px 10px;"
+        "}"
+        "QMenuBar::item:selected {"
+        "  background-color: #3a3a3a;"
+        "}"
+        "QMenu {"
+        "  background-color: #2b2b2b;"
+        "  color: #f0f0f0;"
+        "  border: 1px solid #444;"
+        "}"
+        "QMenu::item:selected {"
+        "  background-color: #3f5f7f;"
+        "}"
+    ));
 }
 
 void MainWindow::openFile()
