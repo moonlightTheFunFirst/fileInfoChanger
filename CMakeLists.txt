@@ -12,7 +12,7 @@ set(CMAKE_AUTORCC ON)
 
 find_package(Qt6 REQUIRED COMPONENTS Widgets)
 
-add_executable(fileInfoChanger
+add_executable(fileInfoChanger WIN32
     src/main.cpp
     src/MainWindow.cpp
     src/MainWindow.h
