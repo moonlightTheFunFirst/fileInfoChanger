@@ -36,6 +36,7 @@
 #include <QRegularExpression>
 #include <QtGlobal>
 #include <QSettings>
+#include <QSize>
 #include <QSizePolicy>
 #include <QSplitter>
 #include <QStatusBar>
@@ -331,10 +332,12 @@ void MainWindow::setupUi()
     arrowLayout->setContentsMargins(0, 0, 0, 0);
     arrowLayout->setSpacing(0);
 
-    addToRenameQueueButton = new QPushButton(tr("→"), arrowContainer);
+    addToRenameQueueButton = new QPushButton(arrowContainer);
     addToRenameQueueButton->setFixedWidth(48);
     addToRenameQueueButton->setMinimumHeight(54);
     addToRenameQueueButton->setSizePolicy(QSizePolicy::Fixed, QSizePolicy::Expanding);
+    addToRenameQueueButton->setIcon(QIcon(QStringLiteral(":/icons/arrow-add.svg")));
+    addToRenameQueueButton->setIconSize(QSize(36, 36));
     addToRenameQueueButton->setToolTip(tr("選択またはチェックされたファイルをリネーム対象へ追加"));
     connect(addToRenameQueueButton, &QPushButton::clicked, this, &MainWindow::addCheckedFilesToRenameQueue);
     arrowLayout->addSpacing(7);
