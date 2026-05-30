@@ -89,6 +89,11 @@ if errorlevel 1 exit /b %errorlevel%
 copy /Y "%QT_PLUGIN_DIR%\iconengines\qsvgicon.dll" "%DEPLOY_DIR%\iconengines\qsvgicon.dll" >nul
 if errorlevel 1 exit /b %errorlevel%
 
+mkdir "%DEPLOY_DIR%\styles"
+if errorlevel 1 exit /b %errorlevel%
+copy /Y "%QT_PLUGIN_DIR%\styles\qmodernwindowsstyle.dll" "%DEPLOY_DIR%\styles\qmodernwindowsstyle.dll" >nul
+if errorlevel 1 exit /b %errorlevel%
+
 if not exist "%DEPLOY_DIR%\Qt6Core.dll" (
     echo Qt6Core.dll was not deployed.
     exit /b 1
