@@ -44,7 +44,6 @@ if exist "%ROOT%fileInfoChanger.ini" (
 for %%D in (
     Qt6Core.dll
     Qt6Gui.dll
-    Qt6Svg.dll
     Qt6Widgets.dll
     libb2-1.dll
     libbrotlicommon.dll
@@ -82,11 +81,6 @@ for %%D in (
 mkdir "%DEPLOY_DIR%\platforms"
 if errorlevel 1 exit /b %errorlevel%
 copy /Y "%QT_PLUGIN_DIR%\platforms\qwindows.dll" "%DEPLOY_DIR%\platforms\qwindows.dll" >nul
-if errorlevel 1 exit /b %errorlevel%
-
-mkdir "%DEPLOY_DIR%\iconengines"
-if errorlevel 1 exit /b %errorlevel%
-copy /Y "%QT_PLUGIN_DIR%\iconengines\qsvgicon.dll" "%DEPLOY_DIR%\iconengines\qsvgicon.dll" >nul
 if errorlevel 1 exit /b %errorlevel%
 
 mkdir "%DEPLOY_DIR%\styles"

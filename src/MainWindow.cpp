@@ -360,7 +360,7 @@ void MainWindow::setupUi()
     addToRenameQueueButton->setFixedWidth(48);
     addToRenameQueueButton->setMinimumHeight(54);
     addToRenameQueueButton->setSizePolicy(QSizePolicy::Fixed, QSizePolicy::Expanding);
-    addToRenameQueueButton->setIcon(QIcon(QStringLiteral(":/icons/arrow-add.svg")));
+    addToRenameQueueButton->setIcon(QIcon(QStringLiteral(":/icons/arrow-add.png")));
     addToRenameQueueButton->setIconSize(QSize(36, 36));
     addToRenameQueueButton->setToolTip(tr("選択またはチェックされたファイルをリネーム対象へ追加"));
     connect(addToRenameQueueButton, &QPushButton::clicked, this, &MainWindow::addCheckedFilesToRenameQueue);
