@@ -161,6 +161,30 @@ bool MainWindow::eventFilter(QObject *watched, QEvent *event)
 
 void MainWindow::setupUi()
 {
+    setStyleSheet(QStringLiteral(
+        "QCheckBox::indicator {"
+        "  width: 11px;"
+        "  height: 11px;"
+        "  border: 1px solid #777777;"
+        "  background-color: #2b2b2b;"
+        "}"
+        "QCheckBox::indicator:checked {"
+        "  border: 1px solid #9a9a9a;"
+        "  background-color: #8a8a8a;"
+        "  image: url(:/icons/checkmark.xpm);"
+        "}"
+        "QCheckBox::indicator:checked:hover {"
+        "  background-color: #9a9a9a;"
+        "}"
+        "QCheckBox::indicator:unchecked:hover {"
+        "  border-color: #9a9a9a;"
+        "}"
+        "QCheckBox::indicator:disabled {"
+        "  border-color: #555555;"
+        "  background-color: #3a3a3a;"
+        "}"
+    ));
+
     auto *central = new QWidget(this);
     auto *rootLayout = new QVBoxLayout(central);
     rootLayout->setContentsMargins(6, 4, 6, 4);

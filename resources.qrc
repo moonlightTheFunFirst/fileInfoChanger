@@ -1,7 +1,7 @@
 <RCC>
     <qresource prefix="/icons">
         <file alias="app-icon.ico">assets/app-icon.ico</file>
-        <file alias="app-icon-transparent.png">assets/app-icon-transparent.png</file>
         <file alias="arrow-add.svg">assets/arrow-add.svg</file>
+        <file alias="checkmark.xpm">assets/checkmark.xpm</file>
     </qresource>
 </RCC>
