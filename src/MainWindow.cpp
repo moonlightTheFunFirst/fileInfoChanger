@@ -337,9 +337,10 @@ void MainWindow::setupUi()
         tr("改行コード"),
     });
     leftTable->horizontalHeader()->setStretchLastSection(false);
-    leftTable->horizontalHeader()->setSectionResizeMode(0, QHeaderView::ResizeToContents);
+    leftTable->horizontalHeader()->setSectionResizeMode(0, QHeaderView::Fixed);
     leftTable->horizontalHeader()->setSectionResizeMode(1, QHeaderView::Stretch);
-    leftTable->horizontalHeader()->setMinimumSectionSize(72);
+    leftTable->horizontalHeader()->setMinimumSectionSize(36);
+    leftTable->setColumnWidth(0, 36);
     leftTable->setColumnWidth(5, 120);
     leftTable->setColumnWidth(6, 90);
     leftTable->setSelectionBehavior(QAbstractItemView::SelectRows);
@@ -739,6 +740,8 @@ void MainWindow::populateLeftPane(const QList<FileInfo> &files)
     }
 
     leftTable->resizeColumnsToContents();
+    leftTable->horizontalHeader()->setSectionResizeMode(0, QHeaderView::Fixed);
+    leftTable->setColumnWidth(0, 36);
     leftTable->horizontalHeader()->setSectionResizeMode(1, QHeaderView::Stretch);
     leftTable->setColumnWidth(5, qMax(leftTable->columnWidth(5), 120));
     leftTable->setColumnWidth(6, qMax(leftTable->columnWidth(6), 90));
