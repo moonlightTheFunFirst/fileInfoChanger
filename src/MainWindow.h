@@ -59,7 +59,7 @@ private:
     void setupMenus();
     void openFile();
     void openFolder();
-    void loadPath(const QString &path);
+    void loadPath(const QString &path, bool resetState = true);
     void refreshCurrentPath();
     void applyFilter();
     void applyStructuredFilters();

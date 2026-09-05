@@ -15,6 +15,7 @@
 #include <QDialog>
 #include <QDialogButtonBox>
 #include <QDragEnterEvent>
+#include <QDragMoveEvent>
 #include <QDropEvent>
 #include <QFile>
 #include <QFileDialog>
@@ -41,6 +42,7 @@
 #include <QSplitter>
 #include <QStatusBar>
 #include <QTableWidget>
+#include <QTimer>
 #include <QUrl>
 #include <QVBoxLayout>
 
@@ -77,7 +79,8 @@ MainWindow::MainWindow(QWidget *parent)
 void MainWindow::dragEnterEvent(QDragEnterEvent *event)
 {
     if (event->mimeData()->hasUrls()) {
-        event->acceptProposedAction();
+        event->setDropAction(Qt::CopyAction);
+        event->accept();
     }
 }
 
@@ -90,13 +93,45 @@ void MainWindow::dropEvent(QDropEvent *event)
 
     const QString path = urls.first().toLocalFile();
     if (!path.isEmpty()) {
-        loadPath(path);
-        event->acceptProposedAction();
+        event->setDropAction(Qt::CopyAction);
+        event->accept();
+        QTimer::singleShot(0, this, [this, path]() {
+            loadPath(path, true);
+        });
     }
 }
 
 bool MainWindow::eventFilter(QObject *watched, QEvent *event)
 {
+    const bool isDropTarget = (leftTable && (watched == leftTable || watched == leftTable->viewport()))
+        || (rightTable && (watched == rightTable || watched == rightTable->viewport()))
+        || (addToRenameQueueButton && watched == addToRenameQueueButton);
+
+    if (isDropTarget && (event->type() == QEvent::DragEnter || event->type() == QEvent::DragMove)) {
+        auto *dragEvent = static_cast<QDragMoveEvent *>(event);
+        if (dragEvent->mimeData()->hasUrls()) {
+            dragEvent->setDropAction(Qt::CopyAction);
+            dragEvent->accept();
+            return true;
+        }
+    }
+
+    if (isDropTarget && event->type() == QEvent::Drop) {
+        auto *dropEvent = static_cast<QDropEvent *>(event);
+        const QList<QUrl> urls = dropEvent->mimeData()->urls();
+        if (!urls.isEmpty()) {
+            const QString path = urls.first().toLocalFile();
+            if (!path.isEmpty()) {
+                dropEvent->setDropAction(Qt::CopyAction);
+                dropEvent->accept();
+                QTimer::singleShot(0, this, [this, path]() {
+                    loadPath(path, true);
+                });
+                return true;
+            }
+        }
+    }
+
     if (watched == filterComboBox->lineEdit() && event->type() == QEvent::KeyPress) {
         auto *keyEvent = static_cast<QKeyEvent *>(event);
         if (keyEvent->key() == Qt::Key_Escape) {
@@ -346,7 +381,10 @@ void MainWindow::setupUi()
     leftTable->setSelectionBehavior(QAbstractItemView::SelectRows);
     leftTable->setSelectionMode(QAbstractItemView::ExtendedSelection);
     leftTable->setEditTriggers(QAbstractItemView::NoEditTriggers);
+    leftTable->setAcceptDrops(true);
     leftTable->installEventFilter(this);
+    leftTable->viewport()->setAcceptDrops(true);
+    leftTable->viewport()->installEventFilter(this);
     connect(leftTable, &QTableWidget::currentCellChanged, this, &MainWindow::updateSelectedPathLabel);
     connect(leftTable, &QTableWidget::cellClicked, this, &MainWindow::updateSelectedPathLabel);
 
@@ -364,6 +402,8 @@ void MainWindow::setupUi()
     addToRenameQueueButton->setIcon(QIcon(QStringLiteral(":/icons/arrow-add.png")));
     addToRenameQueueButton->setIconSize(QSize(36, 36));
     addToRenameQueueButton->setToolTip(tr("選択またはチェックされたファイルをリネーム対象へ追加"));
+    addToRenameQueueButton->setAcceptDrops(true);
+    addToRenameQueueButton->installEventFilter(this);
     connect(addToRenameQueueButton, &QPushButton::clicked, this, &MainWindow::addCheckedFilesToRenameQueue);
     arrowLayout->addSpacing(7);
     arrowLayout->addWidget(addToRenameQueueButton);
@@ -379,7 +419,10 @@ void MainWindow::setupUi()
     rightTable->setSelectionMode(QAbstractItemView::ExtendedSelection);
     rightTable->setEditTriggers(QAbstractItemView::NoEditTriggers);
     rightTable->setContextMenuPolicy(Qt::CustomContextMenu);
+    rightTable->setAcceptDrops(true);
     rightTable->installEventFilter(this);
+    rightTable->viewport()->setAcceptDrops(true);
+    rightTable->viewport()->installEventFilter(this);
     connect(rightTable, &QTableWidget::customContextMenuRequested, this, &MainWindow::showRenameQueueContextMenu);
 
     splitter->addWidget(leftTable);
@@ -490,7 +533,7 @@ void MainWindow::openFolder()
     }
 }
 
-void MainWindow::loadPath(const QString &path)
+void MainWindow::loadPath(const QString &path, bool resetState)
 {
     const QFileInfo target(path);
     if (!target.exists()) {
@@ -499,6 +542,14 @@ void MainWindow::loadPath(const QString &path)
     }
 
     currentPath = target.absoluteFilePath();
+    if (resetState) {
+        pendingEncodingChanges.clear();
+        renameQueueItems.clear();
+        changeEncodingCheckBox->setChecked(false);
+        changeNewlineCheckBox->setChecked(false);
+        populateRenameQueuePane();
+        commitEncodingButton->setEnabled(false);
+    }
 
     FileScanner scanner;
     const int depth = maxScanDepth();
@@ -565,7 +616,7 @@ void MainWindow::applyCurrentDisplayFilters()
 void MainWindow::refreshCurrentPath()
 {
     if (!currentPath.isEmpty()) {
-        loadPath(currentPath);
+        loadPath(currentPath, false);
     }
 }
 
