@@ -6,6 +6,8 @@
 #include <QString>
 #include <QStringList>
 
+#include <atomic>
+
 class FileScanner
 {
 public:
@@ -14,7 +16,8 @@ public:
                              bool includeBinary,
                              bool includeSubfolders,
                              int maxDepth,
-                             const QStringList &nameFilters) const;
+                             const QStringList &nameFilters,
+                             std::atomic_bool *cancelled = nullptr) const;
 
 private:
     void scanDirectory(const QString &dirPath,
@@ -24,10 +27,12 @@ private:
                        int currentDepth,
                        int maxDepth,
                        const QStringList &nameFilters,
-                       QList<FileInfo> &files) const;
-    FileInfo inspectFile(const QString &filePath) const;
+                       QList<FileInfo> &files,
+                       std::atomic_bool *cancelled) const;
+    FileInfo inspectFile(const QString &filePath, std::atomic_bool *cancelled) const;
     bool shouldInclude(const FileInfo &file,
                        bool includeText,
-                       bool includeBinary,
-                       const QStringList &nameFilters) const;
+                       bool includeBinary) const;
+    bool matchesNameFilters(const QString &fileName,
+                            const QStringList &normalizedNameFilters) const;
 };

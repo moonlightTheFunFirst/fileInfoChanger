@@ -8,6 +8,11 @@
 #include <QApplication>
 #include <QBrush>
 #include <QCheckBox>
+#include <QCloseEvent>
+#include <QProgressDialog>
+#include <QEventLoop>
+#include <QScopedValueRollback>
+#include <windows.h>
 #include <QColor>
 #include <QComboBox>
 #include <QCoreApplication>
@@ -35,6 +40,8 @@
 #include <QMimeData>
 #include <QPushButton>
 #include <QRegularExpression>
+#include <QFutureWatcher>
+#include <QSignalBlocker>
 #include <QtGlobal>
 #include <QSettings>
 #include <QSize>
@@ -45,6 +52,7 @@
 #include <QTimer>
 #include <QUrl>
 #include <QVBoxLayout>
+#include <QtConcurrent/QtConcurrentRun>
 
 #include <algorithm>
 #include <functional>
@@ -72,8 +80,28 @@ MainWindow::MainWindow(QWidget *parent)
 {
     setupUi();
     setupMenus();
+    loadViewMode();
     setAcceptDrops(true);
     resize(1180, 720);
+}
+
+MainWindow::~MainWindow()
+{
+    if (activeScanCancellation) {
+        activeScanCancellation->store(true);
+    }
+}
+
+void MainWindow::closeEvent(QCloseEvent *event)
+{
+    if (operationInProgress) {
+        event->ignore();
+        return;
+    }
+    if (activeScanCancellation) {
+        activeScanCancellation->store(true);
+    }
+    QMainWindow::closeEvent(event);
 }
 
 void MainWindow::dragEnterEvent(QDragEnterEvent *event)
@@ -167,9 +195,15 @@ bool MainWindow::eventFilter(QObject *watched, QEvent *event)
                 QWidget *checkContainer = leftTable->cellWidget(row, 0);
                 QCheckBox *checkBox = checkContainer ? checkContainer->findChild<QCheckBox *>() : nullptr;
                 if (checkBox) {
+                    const QSignalBlocker blocker(checkBox);
                     checkBox->setChecked(shouldCheck);
+                    const auto *name = leftTable->item(row, 1);
+                    if (name) {
+                        checkedPaths.insert(name->data(Qt::UserRole).toString(), shouldCheck);
+                    }
                 }
             }
+            updateChangePreview();
             return true;
         }
     }
@@ -533,8 +567,11 @@ void MainWindow::openFolder()
     }
 }
 
-void MainWindow::loadPath(const QString &path, bool resetState)
+void MainWindow::loadPath(const QString &path, bool resetState, bool preservePendingChanges)
 {
+    if (operationInProgress) {
+        return;
+    }
     const QFileInfo target(path);
     if (!target.exists()) {
         statusBar()->showMessage(tr("対象が見つかりません: %1").arg(path));
@@ -543,34 +580,78 @@ void MainWindow::loadPath(const QString &path, bool resetState)
 
     currentPath = target.absoluteFilePath();
     if (resetState) {
+        checkedPaths.clear();
         pendingEncodingChanges.clear();
         renameQueueItems.clear();
+        const QSignalBlocker encodingBlocker(changeEncodingCheckBox);
+        const QSignalBlocker newlineBlocker(changeNewlineCheckBox);
         changeEncodingCheckBox->setChecked(false);
         changeNewlineCheckBox->setChecked(false);
+        currentFiles.clear();
+        leftTable->setRowCount(0);
         populateRenameQueuePane();
         commitEncodingButton->setEnabled(false);
     }
 
-    FileScanner scanner;
     const int depth = maxScanDepth();
     const bool includeSubfolders = includeSubfoldersCheckBox->isChecked();
-    const QList<FileInfo> files = scanner.scanPath(currentPath,
-                                                   showTextAction->isChecked(),
-                                                   showBinaryAction->isChecked(),
-                                                   includeSubfolders,
-                                                   depth,
-                                                   currentNameFilters());
-    currentFiles = files;
-    updateStructuredFilterOptions(currentFiles);
-    applyCurrentDisplayFilters();
+    const bool includeText = showTextAction->isChecked();
+    const bool includeBinary = showBinaryAction->isChecked();
+    const QStringList nameFilters = currentNameFilters();
+    const QString scanPath = currentPath;
+    const quint64 generation = ++scanGeneration;
+    if (activeScanCancellation) {
+        activeScanCancellation->store(true);
+    }
+    const auto cancellation = std::make_shared<std::atomic_bool>(false);
+    activeScanCancellation = cancellation;
+    commitEncodingButton->setEnabled(false);
+
+    statusBar()->showMessage(tr("読み込み中: %1").arg(scanPath));
+
+    auto *watcher = new QFutureWatcher<QList<FileInfo>>(this);
+    connect(watcher, &QFutureWatcher<QList<FileInfo>>::finished, this, [this, watcher, generation, preservePendingChanges]() {
+        const QList<FileInfo> files = watcher->result();
+        watcher->deleteLater();
+        if (generation != scanGeneration) {
+            return;
+        }
+
+        activeScanCancellation.reset();
+        currentFiles = files;
+        updateStructuredFilterOptions(currentFiles);
+        applyCurrentDisplayFilters(!preservePendingChanges);
+        if (preservePendingChanges) {
+            populateRenameQueuePane();
+            commitEncodingButton->setEnabled(!pendingEncodingChanges.isEmpty() || hasPendingRenameChanges());
+        }
+    });
+    watcher->setFuture(QtConcurrent::run([scanPath,
+                                          includeText,
+                                          includeBinary,
+                                          includeSubfolders,
+                                          depth,
+                                          nameFilters,
+                                          cancellation]() {
+        FileScanner scanner;
+        return scanner.scanPath(scanPath,
+                                includeText,
+                                includeBinary,
+                                includeSubfolders,
+                                depth,
+                                nameFilters,
+                                cancellation.get());
+    }));
 }
 
-void MainWindow::applyCurrentDisplayFilters()
+void MainWindow::applyCurrentDisplayFilters(bool updatePreview)
 {
     const QList<FileInfo> files = filteredCurrentFiles();
     populateLeftPane(files);
     updateSelectedPathLabel();
-    updateChangePreview();
+    if (updatePreview) {
+        updateChangePreview();
+    }
 
     const QFileInfo target(currentPath);
     const int depth = maxScanDepth();
@@ -646,13 +727,21 @@ void MainWindow::applyStructuredFilters()
 
 void MainWindow::updateChangePreview()
 {
+    if (operationInProgress) {
+        return;
+    }
     pendingEncodingChanges = checkedRequestedChanges();
-    commitEncodingButton->setEnabled(!pendingEncodingChanges.isEmpty() || hasPendingRenameChanges());
-    populateRenameQueuePane();
+    commitEncodingButton->setEnabled(!activeScanCancellation
+        && (!pendingEncodingChanges.isEmpty() || hasPendingRenameChanges()));
+    populateRenameQueuePane(false);
 }
 
 void MainWindow::commitEncodingChanges()
 {
+    if (operationInProgress || activeScanCancellation) {
+        return;
+    }
+    QScopedValueRollback<bool> operationGuard(operationInProgress, true);
     pendingEncodingChanges = checkedRequestedChanges();
     const bool hasRenameChanges = hasPendingRenameChanges();
     commitEncodingButton->setEnabled(!pendingEncodingChanges.isEmpty() || hasRenameChanges);
@@ -689,6 +778,10 @@ void MainWindow::commitEncodingChanges()
     int renameSucceededCount = 0;
     int renameFailedCount = 0;
     QHash<QString, QString> renamedPaths;
+    const QFileInfo openedTarget(currentPath);
+    const QString openedFilePath = openedTarget.isFile()
+        ? openedTarget.absoluteFilePath().toLower()
+        : QString();
     if (hasRenameChanges) {
         for (RenameQueueItem &item : renameQueueItems) {
             if (item.status != tr("変更予定") || item.newFileName.trimmed().isEmpty()) {
@@ -698,17 +791,29 @@ void MainWindow::commitEncodingChanges()
             const QString targetPath = sourceInfo.dir().absoluteFilePath(item.newFileName);
             const QString sourcePath = sourceInfo.absoluteFilePath();
             const QString normalizedSourcePath = sourcePath.toLower();
-            if (QFileInfo(targetPath).absoluteFilePath().toLower() == normalizedSourcePath) {
+            if (QFileInfo(targetPath).absoluteFilePath() == sourcePath) {
                 item.status = tr("変更なし");
                 continue;
             }
 
-            if (QFile::rename(item.fullPath, targetPath)) {
+            const bool caseOnly = targetPath.compare(sourcePath, Qt::CaseInsensitive) == 0;
+            const bool renamed = caseOnly
+                ? MoveFileExW(reinterpret_cast<LPCWSTR>(sourcePath.utf16()),
+                              reinterpret_cast<LPCWSTR>(targetPath.utf16()), 0) != 0
+                : QFile::rename(item.fullPath, targetPath);
+            if (renamed) {
                 const QString newPath = QFileInfo(targetPath).absoluteFilePath();
+                if (checkedPaths.contains(item.fullPath)) {
+                    const bool checked = checkedPaths.take(item.fullPath);
+                    checkedPaths.insert(newPath, checked);
+                }
                 item.fileName = item.newFileName;
                 item.fullPath = newPath;
                 item.status = tr("成功");
                 renamedPaths.insert(normalizedSourcePath, newPath);
+                if (!openedFilePath.isEmpty() && normalizedSourcePath == openedFilePath) {
+                    currentPath = newPath;
+                }
                 ++renameSucceededCount;
             } else {
                 item.status = tr("失敗");
@@ -728,10 +833,55 @@ void MainWindow::commitEncodingChanges()
     QVector<EncodingChange> failedChanges;
     QVector<EncodingChange> succeededChanges;
 
-    for (EncodingChange change : pendingEncodingChanges) {
-        const TextConverter::Result result = change.operation == PendingOperation::Newline
-            ? TextConverter::convertNewline(change.fullPath, change.toEncoding)
-            : TextConverter::convertEncoding(change.fullPath, change.toEncoding);
+    // The worker owns a snapshot; widgets remain on the GUI thread.
+    QFutureWatcher<QVector<EncodingChange>> conversionWatcher;
+    QEventLoop conversionLoop;
+    QProgressDialog progress(tr("変換中..."), QString(), 0, 0, this);
+    progress.setCancelButton(nullptr);
+    progress.setWindowModality(Qt::ApplicationModal);
+    progress.setMinimumDuration(0);
+    connect(&conversionWatcher, &QFutureWatcher<QVector<EncodingChange>>::finished,
+            &conversionLoop, &QEventLoop::quit);
+    conversionWatcher.setFuture(QtConcurrent::run([changes = pendingEncodingChanges]() mutable {
+        QHash<QString, QList<int>> groups;
+        QStringList paths;
+        for (int i = 0; i < changes.size(); ++i) {
+            if (!groups.contains(changes[i].fullPath)) {
+                paths.append(changes[i].fullPath);
+            }
+            groups[changes[i].fullPath].append(i);
+        }
+        for (const QString &path : paths) {
+            QString encoding;
+            QString newline;
+            for (int i : groups.value(path)) {
+                if (changes[i].operation == PendingOperation::Encoding) {
+                    encoding = changes[i].toEncoding;
+                } else {
+                    newline = changes[i].toEncoding;
+                }
+            }
+            const auto result = TextConverter::convert(path, encoding, newline);
+            for (int i : groups.value(path)) {
+                changes[i].succeeded = result.success;
+                changes[i].failed = !result.success;
+                changes[i].status = result.errorMessage;
+            }
+        }
+        return changes;
+    }));
+    centralWidget()->setEnabled(false);
+    menuBar()->setEnabled(false);
+    progress.show();
+    if (!conversionWatcher.isFinished()) {
+        conversionLoop.exec();
+    }
+    progress.hide();
+    centralWidget()->setEnabled(true);
+    menuBar()->setEnabled(true);
+
+    for (EncodingChange change : conversionWatcher.result()) {
+        const TextConverter::Result result{change.succeeded, change.status};
         if (result.success) {
             change.succeeded = true;
             change.failed = false;
@@ -746,8 +896,7 @@ void MainWindow::commitEncodingChanges()
     }
 
     pendingEncodingChanges = failedChanges;
-    pendingEncodingChanges += succeededChanges;
-    commitEncodingButton->setEnabled(false);
+    commitEncodingButton->setEnabled(!pendingEncodingChanges.isEmpty() || hasPendingRenameChanges());
 
     QMessageBox::information(
         this,
@@ -758,20 +907,27 @@ void MainWindow::commitEncodingChanges()
             .arg(succeededChanges.size())
             .arg(failedChanges.size()));
 
-    refreshCurrentPath();
+    operationInProgress = false;
+    loadPath(currentPath, false, true);
     populateRenameQueuePane();
 }
 
 void MainWindow::populateLeftPane(const QList<FileInfo> &files)
 {
+    leftTable->setUpdatesEnabled(false);
     leftTable->setRowCount(files.size());
 
     for (int row = 0; row < files.size(); ++row) {
         const FileInfo &file = files.at(row);
 
         auto *check = new QCheckBox(leftTable);
-        check->setChecked(file.kind == FileKind::Text);
-        connect(check, &QCheckBox::toggled, this, &MainWindow::updateChangePreview);
+        const bool checked = checkedPaths.value(file.fullPath, file.kind == FileKind::Text);
+        checkedPaths.insert(file.fullPath, checked);
+        check->setChecked(checked);
+        connect(check, &QCheckBox::toggled, this, [this, path = file.fullPath](bool value) {
+            checkedPaths.insert(path, value);
+            updateChangePreview();
+        });
         auto *checkContainer = new QWidget(leftTable);
         auto *checkLayout = new QHBoxLayout(checkContainer);
         checkLayout->setContentsMargins(0, 0, 0, 0);
@@ -797,11 +953,13 @@ void MainWindow::populateLeftPane(const QList<FileInfo> &files)
     leftTable->setColumnWidth(5, qMax(leftTable->columnWidth(5), 120));
     leftTable->setColumnWidth(6, qMax(leftTable->columnWidth(6), 90));
     applyViewMode();
+    leftTable->setUpdatesEnabled(true);
 }
 
-void MainWindow::populateRenameQueuePane()
+void MainWindow::populateRenameQueuePane(bool resizeColumns)
 {
-    clearRenameQueueButton->setEnabled(!renameQueueItems.isEmpty());
+    rightTable->setUpdatesEnabled(false);
+    clearRenameQueueButton->setEnabled(!renameQueueItems.isEmpty() || !pendingEncodingChanges.isEmpty());
     rightTable->setRowCount(renameQueueItems.size() + pendingEncodingChanges.size());
 
     for (int row = 0; row < renameQueueItems.size(); ++row) {
@@ -845,10 +1003,13 @@ void MainWindow::populateRenameQueuePane()
         rightTable->setItem(row, 2, statusItem);
     }
 
-    rightTable->resizeColumnsToContents();
+    if (resizeColumns) {
+        rightTable->resizeColumnsToContents();
+    }
     rightTable->horizontalHeader()->setSectionResizeMode(0, QHeaderView::Stretch);
     rightTable->horizontalHeader()->setSectionResizeMode(1, QHeaderView::Stretch);
     rightTable->horizontalHeader()->setSectionResizeMode(2, QHeaderView::ResizeToContents);
+    rightTable->setUpdatesEnabled(true);
 }
 
 void MainWindow::addCheckedFilesToRenameQueue()
@@ -938,22 +1099,24 @@ void MainWindow::removeSelectedRenameQueueItems()
 
 void MainWindow::clearRenameQueueItems()
 {
-    if (renameQueueItems.isEmpty()) {
+    if (renameQueueItems.isEmpty() && pendingEncodingChanges.isEmpty()) {
         return;
     }
 
     const QMessageBox::StandardButton answer = QMessageBox::question(
         this,
         tr("クリア"),
-        tr("リネーム対象を全て削除しますがよろしいですか？"));
+        tr("リネーム対象と変換結果を全て削除しますがよろしいですか？"));
     if (answer != QMessageBox::Yes) {
         return;
     }
 
-    const int clearedCount = renameQueueItems.size();
+    const int clearedCount = renameQueueItems.size() + pendingEncodingChanges.size();
     renameQueueItems.clear();
+    pendingEncodingChanges.clear();
+    commitEncodingButton->setEnabled(false);
     populateRenameQueuePane();
-    statusBar()->showMessage(tr("リネーム対象を %1 件削除しました。").arg(clearedCount));
+    statusBar()->showMessage(tr("右ペインの項目を %1 件削除しました。").arg(clearedCount));
 }
 
 void MainWindow::moveSelectedRenameQueueItems(int direction)
@@ -1308,16 +1471,15 @@ QString MainWindow::buildFinalRenameName(const QString &sourcePath,
 QString MainWindow::alphabetSequence(int index, int minimumWidth) const
 {
     QString result;
-    int value = qMax(0, index);
+    qint64 value = qMax(0, index);
     do {
         const int digit = value % 26;
         result.prepend(QChar(QLatin1Char('A' + digit)));
-        value = value / 26;
-    } while (value > 0);
-
-    while (result.size() < minimumWidth) {
-        result.prepend(QLatin1Char('A'));
-    }
+        value /= 26;
+        if (result.size() >= minimumWidth) {
+            --value;
+        }
+    } while (value >= 0);
     return result;
 }
 
@@ -1361,7 +1523,9 @@ bool MainWindow::validateRenameTargets(QStringList *errors) const
         const QString normalizedTarget = QFileInfo(targetPath).absoluteFilePath().toLower();
         targetPathCounts[normalizedTarget] += 1;
 
-        if (QFileInfo::exists(targetPath) && QFileInfo(targetPath).absoluteFilePath() != sourceInfo.absoluteFilePath()) {
+        const QString normalizedSource = sourceInfo.absoluteFilePath().toLower();
+        if (QFileInfo::exists(targetPath)
+            && QFileInfo(targetPath).absoluteFilePath().toLower() != normalizedSource) {
             validationErrors.append(tr("%1: 同名のファイルが既に存在します。").arg(newName));
         }
     }
@@ -1487,12 +1651,18 @@ void MainWindow::loadFilterHistory()
     }
     newlineFilterComboBox->blockSignals(newlineBlocked);
 
+}
+
+void MainWindow::loadViewMode()
+{
+    QSettings settings(configPath(), QSettings::IniFormat);
     const QString viewMode = settings.value(QStringLiteral("View/mode"), QStringLiteral("standard")).toString();
     if (detailViewAction && viewMode == QStringLiteral("detail")) {
         detailViewAction->setChecked(true);
     } else if (standardViewAction) {
         standardViewAction->setChecked(true);
     }
+    applyViewMode();
 }
 
 void MainWindow::saveFilterHistory()

@@ -14,6 +14,7 @@ public:
 
     static Result convertEncoding(const QString &filePath, const QString &targetEncoding);
     static Result convertNewline(const QString &filePath, const QString &targetNewline);
+    static Result convert(const QString &filePath, const QString &targetEncoding, const QString &targetNewline);
 
 private:
     static Result readTextFile(const QString &filePath,

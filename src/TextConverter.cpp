@@ -10,24 +10,16 @@
 
 TextConverter::Result TextConverter::convertEncoding(const QString &filePath, const QString &targetEncoding)
 {
-    QByteArray originalData;
-    QString text;
-    QString detectedEncoding;
-    const Result readResult = readTextFile(filePath, &originalData, &text, &detectedEncoding);
-    if (!readResult.success) {
-        return readResult;
-    }
-
-    QString errorMessage;
-    QByteArray convertedData;
-    if (!encodeText(text, targetEncoding, &convertedData, &errorMessage)) {
-        return {false, errorMessage};
-    }
-
-    return writeConvertedData(filePath, convertedData);
+    return convert(filePath, targetEncoding, {});
 }
 
 TextConverter::Result TextConverter::convertNewline(const QString &filePath, const QString &targetNewline)
+{
+    return convert(filePath, {}, targetNewline);
+}
+
+TextConverter::Result TextConverter::convert(const QString &filePath, const QString &requestedEncoding,
+                                            const QString &targetNewline)
 {
     QByteArray originalData;
     QString text;
@@ -37,15 +29,19 @@ TextConverter::Result TextConverter::convertNewline(const QString &filePath, con
         return readResult;
     }
 
-    text.replace(QStringLiteral("\r\n"), QStringLiteral("\n"));
-    text.replace(QChar('\r'), QChar('\n'));
-    if (targetNewline == QStringLiteral("CRLF")) {
-        text.replace(QStringLiteral("\n"), QStringLiteral("\r\n"));
-    } else if (targetNewline != QStringLiteral("LF")) {
-        return {false, QStringLiteral("未対応の変更先改行コード")};
+    if (!targetNewline.isEmpty()) {
+        text.replace(QStringLiteral("\r\n"), QStringLiteral("\n"));
+        text.replace(QChar('\r'), QChar('\n'));
+        if (targetNewline == QStringLiteral("CRLF")) {
+            text.replace(QStringLiteral("\n"), QStringLiteral("\r\n"));
+        } else if (targetNewline != QStringLiteral("LF")) {
+            return {false, QStringLiteral("未対応の変更先改行コード")};
+        }
     }
 
-    QString targetEncoding = detectedEncoding;
+    QString targetEncoding = requestedEncoding.isEmpty() ? detectedEncoding : requestedEncoding;
+    const bool preserveBigEndian = requestedEncoding.isEmpty() && originalData.startsWith("\xFE\xFF");
+    originalData.clear();
     if (targetEncoding == QStringLiteral("UTF-8/ASCII")) {
         targetEncoding = QStringLiteral("UTF-8 BOMなし");
     }
@@ -54,6 +50,14 @@ TextConverter::Result TextConverter::convertNewline(const QString &filePath, con
     QByteArray convertedData;
     if (!encodeText(text, targetEncoding, &convertedData, &errorMessage)) {
         return {false, errorMessage};
+    }
+
+    if (preserveBigEndian) {
+        for (qsizetype i = 0; i + 1 < convertedData.size(); i += 2) {
+            const char first = convertedData.at(i);
+            convertedData[i] = convertedData.at(i + 1);
+            convertedData[i + 1] = first;
+        }
     }
 
     return writeConvertedData(filePath, convertedData);
@@ -70,6 +74,9 @@ TextConverter::Result TextConverter::readTextFile(const QString &filePath,
     }
 
     *originalData = input.readAll();
+    if (input.error() != QFileDevice::NoError) {
+        return {false, input.errorString()};
+    }
     input.close();
 
     const FileKind kind = TextInspector::detectKind(*originalData);
@@ -196,6 +203,10 @@ bool TextConverter::decodeCp932(const QByteArray &data, QString *text, QString *
 
 bool TextConverter::encodeCp932(const QString &text, QByteArray *data, QString *errorMessage)
 {
+    if (text.isEmpty()) {
+        data->clear();
+        return true;
+    }
     BOOL usedDefaultChar = FALSE;
     const int required = WideCharToMultiByte(932,
                                             WC_NO_BEST_FIT_CHARS,

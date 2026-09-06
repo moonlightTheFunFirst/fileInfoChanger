@@ -6,6 +6,10 @@
 #include <QMainWindow>
 #include <QStringList>
 #include <QVector>
+#include <QHash>
+
+#include <atomic>
+#include <memory>
 
 class QLabel;
 class QAction;
@@ -45,11 +49,14 @@ struct EncodingChange
 class MainWindow : public QMainWindow
 {
     Q_OBJECT
+    friend class ReviewRegressionTests;
 
 public:
     explicit MainWindow(QWidget *parent = nullptr);
+    ~MainWindow() override;
 
 protected:
+    void closeEvent(QCloseEvent *event) override;
     void dragEnterEvent(QDragEnterEvent *event) override;
     void dropEvent(QDropEvent *event) override;
     bool eventFilter(QObject *watched, QEvent *event) override;
@@ -59,14 +66,17 @@ private:
     void setupMenus();
     void openFile();
     void openFolder();
-    void loadPath(const QString &path, bool resetState = true);
+    void loadViewMode();
+    void loadPath(const QString &path,
+                 bool resetState = true,
+                 bool preservePendingChanges = false);
     void refreshCurrentPath();
     void applyFilter();
     void applyStructuredFilters();
     void updateChangePreview();
     void commitEncodingChanges();
     void populateLeftPane(const QList<FileInfo> &files);
-    void populateRenameQueuePane();
+    void populateRenameQueuePane(bool resizeColumns = true);
     void addCheckedFilesToRenameQueue();
     void removeSelectedRenameQueueItems();
     void clearRenameQueueItems();
@@ -88,7 +98,7 @@ private:
     QString numberSequence(int index, int minimumWidth) const;
     bool validateRenameTargets(QStringList *errors) const;
     void updateStructuredFilterOptions(const QList<FileInfo> &files);
-    void applyCurrentDisplayFilters();
+    void applyCurrentDisplayFilters(bool updatePreview = true);
     void applyViewMode();
     void saveViewMode();
     void updateSelectedPathLabel();
@@ -125,6 +135,10 @@ private:
     QAction *standardViewAction = nullptr;
     QAction *detailViewAction = nullptr;
     QString currentPath;
+    quint64 scanGeneration = 0;
+    bool operationInProgress = false;
+    QHash<QString, bool> checkedPaths;
+    std::shared_ptr<std::atomic_bool> activeScanCancellation;
     QList<FileInfo> currentFiles;
     QVector<EncodingChange> pendingEncodingChanges;
     QVector<RenameQueueItem> renameQueueItems;

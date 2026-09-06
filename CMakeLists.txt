@@ -10,7 +10,7 @@ set(CMAKE_AUTOMOC ON)
 set(CMAKE_AUTOUIC ON)
 set(CMAKE_AUTORCC ON)
 
-find_package(Qt6 REQUIRED COMPONENTS Widgets)
+find_package(Qt6 REQUIRED COMPONENTS Concurrent Widgets)
 
 add_executable(fileInfoChanger WIN32
     src/main.cpp
@@ -27,4 +27,20 @@ add_executable(fileInfoChanger WIN32
     app.rc
 )
 
-target_link_libraries(fileInfoChanger PRIVATE Qt6::Widgets)
+target_link_libraries(fileInfoChanger PRIVATE Qt6::Concurrent Qt6::Widgets)
+
+option(FIC_BUILD_TESTS "Build regression tests" OFF)
+if(FIC_BUILD_TESTS)
+    enable_testing()
+    find_package(Qt6 REQUIRED COMPONENTS Test)
+    add_executable(review_tests
+        tests/ReviewRegressionTests.cpp
+        src/MainWindow.cpp src/MainWindow.h
+        src/FileScanner.cpp src/TextInspector.cpp src/TextConverter.cpp
+        resources.qrc
+    )
+    target_include_directories(review_tests PRIVATE src)
+    target_link_libraries(review_tests PRIVATE Qt6::Test Qt6::Widgets Qt6::Concurrent)
+    set_target_properties(review_tests PROPERTIES RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/tests")
+    add_test(NAME review_regressions COMMAND review_tests -platform offscreen)
+endif()
